@@ -31,6 +31,7 @@
     bool extensionBoardLed;
 #endif
 
+// This is a test message
 short int rotaryEncoderStage = 0;
 
 // =============================== INTERRUPTS ===============================
