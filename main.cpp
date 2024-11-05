@@ -205,5 +205,9 @@ int main()
     }
 }
 
+<<<<<<< HEAD
 // Write the fan speed stuff
 // 
+=======
+// This is a test for branches in github
+>>>>>>> 50784e6de4a9e26cf0b6daa07aa4964452e2d73b
