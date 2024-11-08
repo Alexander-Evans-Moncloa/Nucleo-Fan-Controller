@@ -22,8 +22,6 @@
     DigitalIn rotaryA(PA_1);
     DigitalIn rotaryB(PA_4);
 
-    //AnalogIn fanTACO(PA_0);
-
     // PWM Signals
     PwmOut fanPWM(PB_0);
 
@@ -45,12 +43,22 @@ BufferedSerial mypc(USBTX, USBRX);
 const int TEMP_SENS_ADDR = 0x9A; // I2C Address for temperature sensor
 
 // Microsecond conversions
-const int MILLISECOND = 1000;
-const int HALF_SECOND = 500000;
+const int MILLISECOND    = 1000;
+const int TENTH_SECOND   = 100000;
+const int QUARTER_SECOND = 250000;
+const int HALF_SECOND    = 500000;
+
+const int FAN_PWM_PERIOD = MILLISECOND*10;
+const int PULSE_STRETCH_PERIOD = MILLISECOND*50; // Stretch the PWM signal to measure TACO
 
 // =============================== GLOBAL VARS ===============================
 short int rotaryEncoderStage = 0;
 int fanTACOCounter = 0;
+float maxFanRPM = 0.0f;
+
+// Tachometer Reading & Pulse Stretching
+Timer globalTimer;
+bool fanTachometerReading = 0;
 
 FILE* mypcFile1 = fdopen(&mypc, "r+"); // Set up the Serial USB Ports
 
@@ -63,7 +71,7 @@ void flip()
 
 void incrementTACO()
 {
-    fanTACOCounter++;
+    if (fanTachometerReading) fanTACOCounter++;
 }
 
 // =============================== OTHER FUNCTIONS ===============================
@@ -106,8 +114,12 @@ void readFanSpeed(int timeDelta)
 { // RPM = (TACO Ticks/2) / (Time converted from microseconds to minutes)
 
     float fanRPM = ((float)fanTACOCounter/2) / ((float)timeDelta/(60000000));
-    int tempfanRPM = (int)round(fanRPM);
-    printf("Time Elapsed: %d\tFan RPM: %d\n", timeDelta, tempfanRPM);
+    if (fanRPM > maxFanRPM) maxFanRPM = fanRPM;
+
+    int fanSpeedPercentage = (int)((fanRPM/maxFanRPM)*100);
+    int tempFanRPM = (int)round(fanRPM);
+    int tempMaxFanRPM = (int)round(maxFanRPM);
+    printf("Fan RPM: %d\t Max Fan Speed: %d\tFan Speed Percentage: %d\n", tempFanRPM, tempMaxFanRPM, fanSpeedPercentage);
 
     fanTACOCounter = 0;
 }
@@ -203,11 +215,11 @@ int main()
     char temperatureData;
     float speedChangeValue = 0;
 
+    float fanPeriod = 0.00005;
     float fanSpeedPWM = 1.0f;
 
     int tempFanSpeed = 0;
     float fanSpeedRPM = 0.5f;
-    short int mainLoopCounter = 0;
 
     Timer mainLoopTimer;
 
@@ -218,10 +230,11 @@ int main()
     button.mode(PullUp);
     button.rise(&flip);
 
-    fanTACO.mode(PullUp);
-    fanTACO.rise(&incrementTACO);
+    //fanTACO.mode(PullUp);
+    fanTACO.fall(&incrementTACO);
 
-    fanPWM.period(0.01f);
+    //fanPWM.period(fanPeriod);
+    fanPWM.period_us(FAN_PWM_PERIOD);
     fanPWM.write(fanSpeedPWM);
 
     // Start the timer and the main loop
@@ -242,21 +255,39 @@ int main()
         tempFanSpeed = fanSpeedPWM * 100;
         //printf("Counter Value: %d\n", tempFanSpeed);
 
-        fanPWM.write(fanSpeedPWM);
+        if (!fanTachometerReading) fanPWM.write(fanSpeedPWM);
         //fanSpeedRPM = readFanSpeed();
 
-        mainLoopCounter++;
+        // 
+        if (mainLoopTimer.elapsed_time().count() >= HALF_SECOND*2) {
+            if (!fanTachometerReading) {
+                globalTimer.start();
+                fanTachometerReading = 1;
+                fanPWM.write(1.0f);
 
-        if (mainLoopTimer.elapsed_time().count() >= HALF_SECOND) {
+            }
+
             mainLoopTimer.stop();
-            printf("fanTACO: %d \t Fan PWM: %d\t", fanTACOCounter, tempFanSpeed);
-            readFanSpeed(mainLoopTimer.elapsed_time().count());
-
             mainLoopTimer.reset();
             mainLoopTimer.start();
+        }
+
+        // Check if the pulse stretch period has been exceeded
+        if (globalTimer.elapsed_time().count() >= PULSE_STRETCH_PERIOD) {
+            fanTachometerReading = 0;
+
+            fanPWM.write(fanSpeedPWM);
+
+            // Pulse Stretch the PWM signal, measure the Tachometer readings
+            printf("Fan PWM: %d\t", tempFanSpeed);
+
+            globalTimer.stop();
+            readFanSpeed(globalTimer.elapsed_time().count());
+
+            globalTimer.reset();
         }
     }
 }
 
 // Write the fan speed stuff
-// Fan Period could be altered to allow for low speed control by decreasing the period and duty cycle
+// 
