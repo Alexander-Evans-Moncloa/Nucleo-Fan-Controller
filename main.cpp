@@ -49,12 +49,12 @@ const int QUARTER_SECOND = 250000;
 const int HALF_SECOND    = 500000;
 
 const int FAN_PWM_PERIOD = MILLISECOND*10;
-const int PULSE_STRETCH_PERIOD = MILLISECOND*50; // Stretch the PWM signal to measure TACO
+const int PULSE_STRETCH_PERIOD = MILLISECOND*150; // Stretch the PWM signal to measure TACO
 
 // =============================== GLOBAL VARS ===============================
 short int rotaryEncoderStage = 0;
 int fanTACOCounter = 0;
-float maxFanRPM = 0.0f;
+int maxFanRPM = 0;
 
 // Tachometer Reading & Pulse Stretching
 Timer globalTimer;
@@ -71,7 +71,8 @@ void flip()
 
 void incrementTACO()
 {
-    if (fanTachometerReading) fanTACOCounter++;
+    if (fanTachometerReading) {fanTACOCounter++; led = !led;}
+    led = 0;
 }
 
 // =============================== OTHER FUNCTIONS ===============================
@@ -113,14 +114,17 @@ void rotaryEncoderDirectionLED()
 void readFanSpeed(int timeDelta) 
 { // RPM = (TACO Ticks/2) / (Time converted from microseconds to minutes)
 
-    float fanRPM = ((float)fanTACOCounter/2) / ((float)timeDelta/(60000000));
+    //float fanRPM = ((float)fanTACOCounter/2) / ((float)timeDelta/(60000000));
+    timeDelta -= (timeDelta % 100);
+    int fanRPM = (fanTACOCounter*30000000) / timeDelta;
     if (fanRPM > maxFanRPM) maxFanRPM = fanRPM;
 
-    int fanSpeedPercentage = (int)((fanRPM/maxFanRPM)*100);
+    int fanSpeedPercentage = (int)(((float)fanRPM/maxFanRPM)*100);
     int tempFanRPM = (int)round(fanRPM);
     int tempMaxFanRPM = (int)round(maxFanRPM);
-    printf("Fan RPM: %d\t Max Fan Speed: %d\tFan Speed Percentage: %d\n", tempFanRPM, tempMaxFanRPM, fanSpeedPercentage);
-
+    printf("Fan RPM: %d\t Max Fan Speed: %d\tFan Speed Percentage: %d\tFan TACO: %d\tTime Delta: %d\n", 
+            tempFanRPM, tempMaxFanRPM, fanSpeedPercentage, fanTACOCounter, timeDelta);
+    
     fanTACOCounter = 0;
 }
 
@@ -258,7 +262,7 @@ int main()
         if (!fanTachometerReading) fanPWM.write(fanSpeedPWM);
         //fanSpeedRPM = readFanSpeed();
 
-        // 
+        // Start pulse stretching every half a second
         if (mainLoopTimer.elapsed_time().count() >= HALF_SECOND*2) {
             if (!fanTachometerReading) {
                 globalTimer.start();
@@ -273,18 +277,16 @@ int main()
         }
 
         // Check if the pulse stretch period has been exceeded
-        if (globalTimer.elapsed_time().count() >= PULSE_STRETCH_PERIOD) {
+        if (globalTimer.elapsed_time().count() >= PULSE_STRETCH_PERIOD && fanTachometerReading) {
             fanTachometerReading = 0;
+            globalTimer.stop();
 
-            fanPWM.write(fanSpeedPWM);
-
-            // Pulse Stretch the PWM signal, measure the Tachometer readings
             printf("Fan PWM: %d\t", tempFanSpeed);
 
-            globalTimer.stop();
             readFanSpeed(globalTimer.elapsed_time().count());
-
             globalTimer.reset();
+
+            fanPWM.write(fanSpeedPWM);
         }
     }
 }
