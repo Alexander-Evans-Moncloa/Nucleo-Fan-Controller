@@ -198,15 +198,19 @@ void sevenSegPrint(int valueToDisplay)
 
 void readFanSpeed(int timeDelta) 
 { 
-    // RPM = (TACO Ticks/2) / (Time converted from microseconds to minutes)
-    //float fanRPM = ((float)fanTACOCounter/2) / ((float)timeDelta/(60000000));
+    // Remove random time variations in the 10us range
     timeDelta -= (timeDelta % 100);
+
+    // RPM = (TACO Ticks/2) / (Time converted from microseconds to minutes)
     int fanRPM = (fanTACOCounter*30000000) / timeDelta;
     if (fanRPM > maxFanRPM) maxFanRPM = fanRPM;
 
+    // Calculate Debug Info
     int fanSpeedPercentage = (int)(((float)fanRPM/maxFanRPM)*100);
     int tempFanRPM = (int)round(fanRPM);
     int tempMaxFanRPM = (int)round(maxFanRPM);
+
+    // Print Debug Info
     printf("Fan RPM: %d\t Max Fan Speed: %d\tFan Speed Percentage: %d\tFan TACO: %d\tTime Delta: %d\n", 
             tempFanRPM, tempMaxFanRPM, fanSpeedPercentage, fanTACOCounter, timeDelta);
      
@@ -216,9 +220,10 @@ void readFanSpeed(int timeDelta)
 // =============================== CONTROL ===============================
 
 int openLoopControl()
-{ // Check OneNote for details
+{   // Check OneNote for details
+    // Returns +1 to increase speed, Returns -1 to decrease speed, Returns 0 to keep it constant
 
-    // Clockwise
+    // Clockwise Stages
     if ((rotaryEncoderStage == 0) && ((!rotaryA) && (rotaryB))) rotaryEncoderStage++;
     if ((rotaryEncoderStage == 1) && ((!rotaryA) && (!rotaryB))) rotaryEncoderStage++;
     if ((rotaryEncoderStage == 2) && ((rotaryA) && (!rotaryB))) rotaryEncoderStage++;
@@ -231,7 +236,7 @@ int openLoopControl()
         return 1;
     }
 
-    // Counter-Clockwise
+    // Counter-Clockwise Stages
     if ((rotaryEncoderStage == 0) && ((rotaryA) && (!rotaryB))) rotaryEncoderStage--;
     if ((rotaryEncoderStage == -1) && ((!rotaryA) && (!rotaryB))) rotaryEncoderStage--;
     if ((rotaryEncoderStage == -2) && ((!rotaryA) && (rotaryB))) rotaryEncoderStage--;
@@ -307,11 +312,9 @@ int main()
     char temperatureData;
     float speedChangeValue = 0;
 
-    float fanPeriod = 0.00005;
     float fanSpeedPWM = 1.0f;
 
     int tempFanSpeed = 0;
-    float fanSpeedRPM = 0.5f;
 
     Timer mainLoopTimer;
 
