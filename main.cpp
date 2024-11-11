@@ -6,52 +6,72 @@
 #include "mbed.h"
 #include <cstdio>
 
-// Blinking rate in milliseconds
-#define BLINKING_RATE     500ms
+// ====================================================================
+// =============================== PINS ===============================
+// ==================================================================== 
 
-    // Initialise the digital pins
-#ifndef PINS
-#define PINS
-    // Digital Outputs
-    DigitalOut led(LED1);
-    DigitalOut extensionBoardLed(PC_0);
-    DigitalOut biDirLedA(PB_7);
-    DigitalOut biDirLedB(PA_15);
+// Digital Outputs
+DigitalOut led(LED1);
+DigitalOut extensionBoardLed(PC_0);
+DigitalOut biDirLedA(PB_7);
+DigitalOut biDirLedB(PA_15);
+
+BusOut sevenSegPWR( PC_8,  // Left Display
+                    PC_6); // Right Display
+
+// This will be multiplexed with both displays. MSB will be PB_1
+BusOut sevenSegDisplay_L( PC_5,  // g
+                        PA_12, // f
+                        PA_11, // e 
+                        PB_12, // d
+                        PB_11, // c
+                        PB_2,  // b
+                        PB_1); // a
     
-    // Digital Inputs
-    DigitalIn rotaryA(PA_1);
-    DigitalIn rotaryB(PA_4);
+// Digital Inputs
+DigitalIn rotaryA(PA_1);
+DigitalIn rotaryB(PA_4);
 
-    // PWM Signals
-    PwmOut fanPWM(PB_0);
+// PWM Signals
+PwmOut fanPWM(PB_0);
 
-    // I2C Signals
-    I2C tempSensorI2C(PB_9, PB_8);
+// I2C Signals
+I2C tempSensorI2C(PB_9, PB_8);
 
-    // Interrupts
-    InterruptIn button(BUTTON1);
-    InterruptIn fanTACO(PA_0);
-#else
-    bool led;
-    bool extensionBoardLed;
-#endif
+// Interrupts
+InterruptIn button(BUTTON1);
+InterruptIn fanTACO(PA_0);
+
 
 // Define the Serial USB Output
 BufferedSerial mypc(USBTX, USBRX);
 
+// =========================================================================
 // =============================== CONSTANTS ===============================
+// =========================================================================
+
 const int TEMP_SENS_ADDR = 0x9A; // I2C Address for temperature sensor
 
-// Microsecond conversions
+// =============================== TIMING-BASED ===============================
+
+// Microsecond Timings
 const int MILLISECOND    = 1000;
 const int TENTH_SECOND   = 100000;
 const int QUARTER_SECOND = 250000;
 const int HALF_SECOND    = 500000;
 
+// Millisecond Timings
+#define BLINKING_RATE     500ms
+#define MULTIPLEX_BLINKING_RATE 5ms
+
+// Periods
 const int FAN_PWM_PERIOD = MILLISECOND*10;
 const int PULSE_STRETCH_PERIOD = MILLISECOND*150; // Stretch the PWM signal to measure TACO
 
+// ===========================================================================
 // =============================== GLOBAL VARS ===============================
+// ===========================================================================
+
 short int rotaryEncoderStage = 0;
 int fanTACOCounter = 0;
 int maxFanRPM = 0;
@@ -62,7 +82,9 @@ bool fanTachometerReading = 0;
 
 FILE* mypcFile1 = fdopen(&mypc, "r+"); // Set up the Serial USB Ports
 
+// ==========================================================================
 // =============================== INTERRUPTS ===============================
+// ==========================================================================
 
 void flip() 
 { // Flips extension board on call
@@ -75,7 +97,11 @@ void incrementTACO()
     led = 0;
 }
 
+// ===============================================================================
 // =============================== OTHER FUNCTIONS ===============================
+// ===============================================================================
+
+// =============================== MISC FUNCTIONS ===============================
 
 void blinky()
 { // Blinky Example Code (Don't use)
@@ -111,9 +137,68 @@ void rotaryEncoderDirectionLED()
     if ((rotaryEncoderStage != 0) && ((rotaryA) && (rotaryB))) rotaryEncoderStage = 0;
 }
 
-void readFanSpeed(int timeDelta) 
-{ // RPM = (TACO Ticks/2) / (Time converted from microseconds to minutes)
+// =============================== ANALYTICS ===============================
 
+void sevenSegPrintDigit(int value)
+{
+    // Order of bits: a,b,c,d,e,f,g
+    switch (value) {
+        case 0:
+            sevenSegDisplay_L = 0b0000001; // 0b1111110;
+            break;
+        case 1:
+            sevenSegDisplay_L = 0b1001111; // 0b00110000;
+            break;
+        case 2:
+            sevenSegDisplay_L = 0b0010010; // 0b1101101;
+            break;
+        case 3:
+            sevenSegDisplay_L = 0b0000110; // 0b1111001;
+            break;
+        case 4:
+            sevenSegDisplay_L = 0b1001100; // 0b0110011;
+            break;
+        case 5:
+            sevenSegDisplay_L = 0b0100100; // 0b1011011;
+            break;
+        case 6:
+            sevenSegDisplay_L = 0b0100000; // 0b1011111;
+            break;
+        case 7:
+            sevenSegDisplay_L = 0b0001111; // 0b1110000;
+            break;
+        case 8:
+            sevenSegDisplay_L = 0b0000000; // 0b1111111;
+            break;
+        case 9:
+            sevenSegDisplay_L = 0b0000100; // 0b1111011;
+            break;
+        default:
+            sevenSegDisplay_L = 0b1111111; // 0b00000000;
+            break;
+    }
+}
+
+void sevenSegPrint(int valueToDisplay)
+{
+    int tens = valueToDisplay / 10;
+    int units = valueToDisplay % 10;
+
+    ThisThread::sleep_for(MULTIPLEX_BLINKING_RATE);
+
+    sevenSegPWR = 0b01;
+    sevenSegPrintDigit(tens);
+    
+    ThisThread::sleep_for(MULTIPLEX_BLINKING_RATE);
+
+    sevenSegPWR = 0b10;
+    sevenSegPrintDigit(units);
+    
+}
+
+void readFanSpeed(int timeDelta) 
+{ 
+    // RPM = (TACO Ticks/2) / (Time converted from microseconds to minutes)
     //float fanRPM = ((float)fanTACOCounter/2) / ((float)timeDelta/(60000000));
     timeDelta -= (timeDelta % 100);
     int fanRPM = (fanTACOCounter*30000000) / timeDelta;
@@ -124,9 +209,11 @@ void readFanSpeed(int timeDelta)
     int tempMaxFanRPM = (int)round(maxFanRPM);
     printf("Fan RPM: %d\t Max Fan Speed: %d\tFan Speed Percentage: %d\tFan TACO: %d\tTime Delta: %d\n", 
             tempFanRPM, tempMaxFanRPM, fanSpeedPercentage, fanTACOCounter, timeDelta);
-    
+     
     fanTACOCounter = 0;
 }
+
+// =============================== CONTROL ===============================
 
 int openLoopControl()
 { // Check OneNote for details
@@ -163,7 +250,7 @@ int openLoopControl()
     return 0;
 }
 
-// I2C Interface Functions (Temperature Sensor)
+// =============================== I2C ===============================
 
 void findI2CDevices() 
 {
@@ -198,7 +285,6 @@ char getTemperatureReading()
     tempSensorI2C.read(TEMP_SENS_ADDR, tempSensData, 1); 
     wait_us(10);
 
-
     //-----------------Print out section ----------------------
     //Display device Address and informations
     //fprintf(mypcFile1,"Device with tempSensAddress 0x%x with\r\n", TEMP_SENS_ADDR); 
@@ -211,7 +297,9 @@ char getTemperatureReading()
     return tempSensData[0];
 }
 
+// =========================================================================
 // =============================== MAIN CODE ===============================
+// =========================================================================
 
 int main() 
 {
@@ -234,21 +322,18 @@ int main()
     button.mode(PullUp);
     button.rise(&flip);
 
-    //fanTACO.mode(PullUp);
     fanTACO.fall(&incrementTACO);
 
-    //fanPWM.period(fanPeriod);
     fanPWM.period_us(FAN_PWM_PERIOD);
     fanPWM.write(fanSpeedPWM);
 
     // Start the timer and the main loop
     mainLoopTimer.start();
     while (true) {
-        // blinky();
-        //rotaryEncoderDirectionLED();
-
+        // Get the Temperature Data
         //temperatureData = getTemperatureReading();
         
+        // Retrieve the value to change
         speedChangeValue = openLoopControl();
         speedChangeValue /= 100;
 
@@ -257,12 +342,11 @@ int main()
         else fanSpeedPWM += speedChangeValue;
 
         tempFanSpeed = fanSpeedPWM * 100;
-        //printf("Counter Value: %d\n", tempFanSpeed);
 
+        // Change the fan speed
         if (!fanTachometerReading) fanPWM.write(fanSpeedPWM);
-        //fanSpeedRPM = readFanSpeed();
 
-        // Start pulse stretching every half a second
+        // Start Pulse Stretching
         if (mainLoopTimer.elapsed_time().count() >= HALF_SECOND*2) {
             if (!fanTachometerReading) {
                 globalTimer.start();
@@ -288,8 +372,8 @@ int main()
 
             fanPWM.write(fanSpeedPWM);
         }
+
+        // Display the Information
+        sevenSegPrint(tempFanSpeed);
     }
 }
-
-// Write the fan speed stuff
-// 
