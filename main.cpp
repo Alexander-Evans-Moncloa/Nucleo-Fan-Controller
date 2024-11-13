@@ -65,8 +65,12 @@ const int HALF_SECOND    = 500000;
 #define MULTIPLEX_BLINKING_RATE 5ms
 
 // Periods
-const int FAN_PWM_PERIOD = MILLISECOND*10;
-const int PULSE_STRETCH_PERIOD = MILLISECOND*150; // Stretch the PWM signal to measure TACO
+const int FAN_PWM_PERIOD = MILLISECOND*10; // Prev Val: MILLISECOND*10
+const int FAN_SPEED_UPDATE_PERIOD = HALF_SECOND*2;
+
+const int MIN_TACO_PERIOD = MILLISECOND*20; // Calculation based off 3000RPM
+const int MIN_TACO_POSITIVE_PULSE_WIDTH = MILLISECOND*10;
+const int MIN_TACO_ALLOWANCE_PERIOD = MILLISECOND*5;
 
 // ===========================================================================
 // =============================== GLOBAL VARS ===============================
@@ -75,10 +79,11 @@ const int PULSE_STRETCH_PERIOD = MILLISECOND*150; // Stretch the PWM signal to m
 short int rotaryEncoderStage = 0;
 int fanTACOCounter = 0;
 int maxFanRPM = 0;
+int tacoAllowancePeriod = MILLISECOND*5;
 
 // Tachometer Reading & Pulse Stretching
 Timer globalTimer;
-bool fanTachometerReading = 0;
+Timer tacoPeriodTimer;
 
 FILE* mypcFile1 = fdopen(&mypc, "r+"); // Set up the Serial USB Ports
 
@@ -93,8 +98,16 @@ void flip()
 
 void incrementTACO()
 {
-    if (fanTachometerReading) {fanTACOCounter++; led = !led;}
-    led = 0;
+    tacoPeriodTimer.start();
+}
+
+void checkTACOPulseWidth()
+{
+    tacoPeriodTimer.stop();
+    int tacoPeriod = tacoPeriodTimer.elapsed_time().count();   
+    if (tacoPeriod > tacoAllowancePeriod) fanTACOCounter++;
+    
+    tacoPeriodTimer.reset();
 }
 
 // ===============================================================================
@@ -202,7 +215,7 @@ void readFanSpeed(int timeDelta)
     timeDelta -= (timeDelta % 100);
 
     // RPM = (TACO Ticks/2) / (Time converted from microseconds to minutes)
-    int fanRPM = (fanTACOCounter*30000000) / timeDelta;
+    int fanRPM = ((float)fanTACOCounter/timeDelta) * 30000000;
     if (fanRPM > maxFanRPM) maxFanRPM = fanRPM;
 
     // Calculate Debug Info
@@ -219,7 +232,7 @@ void readFanSpeed(int timeDelta)
 
 // =============================== CONTROL ===============================
 
-int openLoopControl()
+int changeFanSpeed()
 {   // Check OneNote for details
     // Returns +1 to increase speed, Returns -1 to decrease speed, Returns 0 to keep it constant
 
@@ -256,27 +269,6 @@ int openLoopControl()
 }
 
 // =============================== I2C ===============================
-
-void findI2CDevices() 
-{
-    //Check whether the sensor is connected
-    fprintf(mypcFile1,"\033[0m\033[2J\033[HI2C Searching!\n\n\n");
-
-    int count = 0;
-    fprintf(mypcFile1,"Starting....\n\n");
-
-    for (int address=0; address<256; address+=2) {
-        if (!tempSensorI2C.write(address, NULL, 0)) { // 0 returned is ok
-            fprintf(mypcFile1,"I2C address 0x%02X\n", address);
-            count++;
-        }
-    }
-
-    fprintf(mypcFile1,"\n\n%d devices found\n", count);
-
-    wait_us(20000);
-}
-
 char getTemperatureReading()
 {
     char tempSensData[2];
@@ -296,7 +288,7 @@ char getTemperatureReading()
 
     //Prints out the result of Method 1
 
-    fprintf(mypcFile1,"Method 1: %d \t Method 2: %d\n\r", tempSensData[0], tempSensData[1]);
+    //fprintf(mypcFile1,"Method 1: %d \t Method 2: %d\n\r", tempSensData[0], tempSensData[1]);
     wait_us(10); 
 
     return tempSensData[0];
@@ -325,7 +317,8 @@ int main()
     button.mode(PullUp);
     button.rise(&flip);
 
-    fanTACO.fall(&incrementTACO);
+    fanTACO.rise(&incrementTACO);
+    fanTACO.fall(&checkTACOPulseWidth);
 
     fanPWM.period_us(FAN_PWM_PERIOD);
     fanPWM.write(fanSpeedPWM);
@@ -334,49 +327,39 @@ int main()
     mainLoopTimer.start();
     while (true) {
         // Get the Temperature Data
-        //temperatureData = getTemperatureReading();
+        temperatureData = getTemperatureReading();
         
         // Retrieve the value to change
-        speedChangeValue = openLoopControl();
+        speedChangeValue = changeFanSpeed();
         speedChangeValue /= 100;
 
         if (fanSpeedPWM + speedChangeValue > 1) fanSpeedPWM = 1.0f;
-        else if (fanSpeedPWM + speedChangeValue < 0) fanSpeedPWM = 0.0f;
+        else if (fanSpeedPWM + speedChangeValue < 0.05) fanSpeedPWM = 0.0f;
         else fanSpeedPWM += speedChangeValue;
+
+        // Set the Allowance Period for Reading Tachometer
+        if      (fanSpeedPWM <= 0.1) tacoAllowancePeriod = MILLISECOND*40;
+        else if (fanSpeedPWM <= 0.2) tacoAllowancePeriod = MILLISECOND*20;
+        else if (fanSpeedPWM <= 0.3) tacoAllowancePeriod = MILLISECOND*12;
+        else if (fanSpeedPWM <= 0.4) tacoAllowancePeriod = MILLISECOND*10;
+        else                         tacoAllowancePeriod = MILLISECOND*5;
 
         tempFanSpeed = fanSpeedPWM * 100;
 
         // Change the fan speed
-        if (!fanTachometerReading) fanPWM.write(fanSpeedPWM);
+        fanPWM.write(fanSpeedPWM);
 
-        // Start Pulse Stretching
-        if (mainLoopTimer.elapsed_time().count() >= HALF_SECOND*2) {
-            if (!fanTachometerReading) {
-                globalTimer.start();
-                fanTachometerReading = 1;
-                fanPWM.write(1.0f);
-
-            }
+        // Update the Fan Speed
+        if (mainLoopTimer.elapsed_time().count() >= FAN_SPEED_UPDATE_PERIOD) {
+            printf("Fan PWM: %d\tTemperature: %d\t", tempFanSpeed, temperatureData);
+            readFanSpeed(mainLoopTimer.elapsed_time().count());
 
             mainLoopTimer.stop();
             mainLoopTimer.reset();
             mainLoopTimer.start();
         }
 
-        // Check if the pulse stretch period has been exceeded
-        if (globalTimer.elapsed_time().count() >= PULSE_STRETCH_PERIOD && fanTachometerReading) {
-            fanTachometerReading = 0;
-            globalTimer.stop();
-
-            printf("Fan PWM: %d\t", tempFanSpeed);
-
-            readFanSpeed(globalTimer.elapsed_time().count());
-            globalTimer.reset();
-
-            fanPWM.write(fanSpeedPWM);
-        }
-
         // Display the Information
-        sevenSegPrint(tempFanSpeed);
+        sevenSegPrint(temperatureData);
     }
 }
