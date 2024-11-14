@@ -4,6 +4,7 @@
  */
 
 #include "mbed.h"
+#include "ST7066_1602_6800_8BIT.c"
 #include <cstdio>
 
 // ====================================================================
@@ -11,22 +12,23 @@
 // ==================================================================== 
 
 // Digital Outputs
-DigitalOut led(LED1);
-DigitalOut extensionBoardLed(PC_0);
-DigitalOut biDirLedA(PB_7);
-DigitalOut biDirLedB(PA_15);
+BusOut boardLeds(LED1,  // Nucleo Board LED
+                 PC_0); // Extension Board LED
+
+BusOut biDirLeds(PB_7,   // Bi-directional LED Side A
+                 PA_15); // Bi-directional LED Side B
 
 BusOut sevenSegPWR( PC_8,  // Left Display
                     PC_6); // Right Display
 
 // This will be multiplexed with both displays. MSB will be PB_1
 BusOut sevenSegDisplay_L( PC_5,  // g
-                        PA_12, // f
-                        PA_11, // e 
-                        PB_12, // d
-                        PB_11, // c
-                        PB_2,  // b
-                        PB_1); // a
+                          PA_12, // f
+                          PA_11, // e 
+                          PB_12, // d
+                          PB_11, // c
+                          PB_2,  // b
+                          PB_1); // a
     
 // Digital Inputs
 DigitalIn rotaryA(PA_1);
@@ -66,7 +68,7 @@ const int HALF_SECOND    = 500000;
 
 // Periods
 const int FAN_PWM_PERIOD = MILLISECOND*10; // Prev Val: MILLISECOND*10
-const int FAN_SPEED_UPDATE_PERIOD = HALF_SECOND*2;
+const int FAN_SPEED_UPDATE_PERIOD = HALF_SECOND*4;
 
 const int MIN_TACO_PERIOD = MILLISECOND*20; // Calculation based off 3000RPM
 const int MIN_TACO_POSITIVE_PULSE_WIDTH = MILLISECOND*10;
@@ -80,20 +82,45 @@ short int rotaryEncoderStage = 0;
 int fanTACOCounter = 0;
 int maxFanRPM = 0;
 int tacoAllowancePeriod = MILLISECOND*5;
+float fanSpeedPWM = 1.0f;
+
+// Enumerator for the modes
+enum Mode {
+    OPEN_LOOP,
+    CLOSED_LOOP,
+    CLOSED_LOOP_EXAMPLE
+};
+enum Mode boardMode = OPEN_LOOP;
+
+// Override the Post Increment Value so that it loops across the enumerator
+Mode operator++(Mode& mode, int) {
+    if (mode == Mode::CLOSED_LOOP_EXAMPLE) {
+        mode = Mode::OPEN_LOOP; // Wrap around to the beginning if needed
+    } else {
+        mode = static_cast<Mode>(static_cast<int>(mode) + 1);
+    }
+    return mode;
+}
 
 // Tachometer Reading & Pulse Stretching
-Timer globalTimer;
+Timer mainLoopTimer;
 Timer tacoPeriodTimer;
 
-FILE* mypcFile1 = fdopen(&mypc, "r+"); // Set up the Serial USB Ports
+// Set up the Serial USB Ports
+FILE* mypcFile1 = fdopen(&mypc, "r+"); 
 
 // ==========================================================================
 // =============================== INTERRUPTS ===============================
 // ==========================================================================
 
-void flip() 
-{ // Flips extension board on call
-    extensionBoardLed = !extensionBoardLed;
+void changeMode() 
+{ // Changes the mode of the board and reset timer
+    mainLoopTimer.stop();
+    boardMode++;
+
+    mainLoopTimer.reset();
+    mainLoopTimer.start();
+    fanTACOCounter = 0;
 } 
 
 void incrementTACO()
@@ -115,13 +142,6 @@ void checkTACOPulseWidth()
 // ===============================================================================
 
 // =============================== MISC FUNCTIONS ===============================
-
-void blinky()
-{ // Blinky Example Code (Don't use)
-    led = !led;
-    ThisThread::sleep_for(BLINKING_RATE);
-}
-
 void rotaryEncoderDirectionLED()
 { // Check OneNote for details
     // Clockwise
@@ -131,8 +151,7 @@ void rotaryEncoderDirectionLED()
 
     if ((rotaryEncoderStage == 3) && ((rotaryA) && (rotaryB))) {
         rotaryEncoderStage = 0;
-        biDirLedA = 1;
-        biDirLedB = 0;
+        biDirLeds = 0b01;
     }
 
     // Counter-Clockwise
@@ -142,8 +161,7 @@ void rotaryEncoderDirectionLED()
 
     if ((rotaryEncoderStage == -3) && ((rotaryA) && (rotaryB))) {
         rotaryEncoderStage = 0;
-        biDirLedA = 0;
-        biDirLedB = 1;
+        biDirLeds = 0b10;
     }
 
     // For cases where the encoder is spun too quickly
@@ -209,63 +227,32 @@ void sevenSegPrint(int valueToDisplay)
     
 }
 
-void readFanSpeed(int timeDelta) 
+void readFanSpeed() 
 { 
-    // Remove random time variations in the 10us range
-    timeDelta -= (timeDelta % 100);
+    int timeDelta = mainLoopTimer.elapsed_time().count();
+    if (mainLoopTimer.elapsed_time().count() >= FAN_SPEED_UPDATE_PERIOD) {
+        mainLoopTimer.stop();
+        // Remove random time variations in the 10us range
+        timeDelta -= (timeDelta % 100);
 
-    // RPM = (TACO Ticks/2) / (Time converted from microseconds to minutes)
-    int fanRPM = ((float)fanTACOCounter/timeDelta) * 30000000;
-    if (fanRPM > maxFanRPM) maxFanRPM = fanRPM;
+        // RPM = (TACO Ticks/2) / (Time converted from microseconds to minutes)
+        int fanRPM = ((float)fanTACOCounter/timeDelta) * 30000000;
+        if (fanRPM > maxFanRPM) maxFanRPM = fanRPM;
 
-    // Calculate Debug Info
-    int fanSpeedPercentage = (int)(((float)fanRPM/maxFanRPM)*100);
-    int tempFanRPM = (int)round(fanRPM);
-    int tempMaxFanRPM = (int)round(maxFanRPM);
+        // Calculate Debug Info
+        int fanSpeedPercentage = (int)(((float)fanRPM/maxFanRPM)*100);
+        int tempFanRPM = (int)round(fanRPM);
+        int tempMaxFanRPM = (int)round(maxFanRPM);
 
-    // Print Debug Info
-    printf("Fan RPM: %d\t Max Fan Speed: %d\tFan Speed Percentage: %d\tFan TACO: %d\tTime Delta: %d\n", 
-            tempFanRPM, tempMaxFanRPM, fanSpeedPercentage, fanTACOCounter, timeDelta);
-     
-    fanTACOCounter = 0;
-}
+        // Print Debug Info
+        printf("Fan RPM: %d\t Max Fan Speed: %d\tFan Speed Percentage: %d\tFan TACO: %d\tTime Delta: %d\n", 
+                tempFanRPM, tempMaxFanRPM, fanSpeedPercentage, fanTACOCounter, timeDelta);
+        
+        fanTACOCounter = 0;
 
-// =============================== CONTROL ===============================
-
-int changeFanSpeed()
-{   // Check OneNote for details
-    // Returns +1 to increase speed, Returns -1 to decrease speed, Returns 0 to keep it constant
-
-    // Clockwise Stages
-    if ((rotaryEncoderStage == 0) && ((!rotaryA) && (rotaryB))) rotaryEncoderStage++;
-    if ((rotaryEncoderStage == 1) && ((!rotaryA) && (!rotaryB))) rotaryEncoderStage++;
-    if ((rotaryEncoderStage == 2) && ((rotaryA) && (!rotaryB))) rotaryEncoderStage++;
-
-    if ((rotaryEncoderStage == 3) && ((rotaryA) && (rotaryB))) {
-        rotaryEncoderStage = 0;
-        biDirLedA = 1;
-        biDirLedB = 0;
-
-        return 1;
+        mainLoopTimer.reset();
+        mainLoopTimer.start();
     }
-
-    // Counter-Clockwise Stages
-    if ((rotaryEncoderStage == 0) && ((rotaryA) && (!rotaryB))) rotaryEncoderStage--;
-    if ((rotaryEncoderStage == -1) && ((!rotaryA) && (!rotaryB))) rotaryEncoderStage--;
-    if ((rotaryEncoderStage == -2) && ((!rotaryA) && (rotaryB))) rotaryEncoderStage--;
-
-    if ((rotaryEncoderStage == -3) && ((rotaryA) && (rotaryB))) {
-        rotaryEncoderStage = 0;
-        biDirLedA = 0;
-        biDirLedB = 1;
-
-        return -1;
-    }
-
-    // For cases where the encoder is spun too quickly
-    if ((rotaryEncoderStage != 0) && ((rotaryA) && (rotaryB))) rotaryEncoderStage = 0;
-
-    return 0;
 }
 
 // =============================== I2C ===============================
@@ -294,6 +281,76 @@ char getTemperatureReading()
     return tempSensData[0];
 }
 
+// =============================== CONTROL ===============================
+
+int changeFanSpeed()
+{   // Check OneNote for details
+    // Returns +1 to increase speed, Returns -1 to decrease speed, Returns 0 to keep it constant
+
+    // Clockwise Stages
+    if ((rotaryEncoderStage == 0) && ((!rotaryA) && (rotaryB))) rotaryEncoderStage++;
+    if ((rotaryEncoderStage == 1) && ((!rotaryA) && (!rotaryB))) rotaryEncoderStage++;
+    if ((rotaryEncoderStage == 2) && ((rotaryA) && (!rotaryB))) rotaryEncoderStage++;
+
+    if ((rotaryEncoderStage == 3) && ((rotaryA) && (rotaryB))) {
+        rotaryEncoderStage = 0;
+        biDirLeds = 0b01;
+
+        return 1;
+    }
+
+    // Counter-Clockwise Stages
+    if ((rotaryEncoderStage == 0) && ((rotaryA) && (!rotaryB))) rotaryEncoderStage--;
+    if ((rotaryEncoderStage == -1) && ((!rotaryA) && (!rotaryB))) rotaryEncoderStage--;
+    if ((rotaryEncoderStage == -2) && ((!rotaryA) && (rotaryB))) rotaryEncoderStage--;
+
+    if ((rotaryEncoderStage == -3) && ((rotaryA) && (rotaryB))) {
+        rotaryEncoderStage = 0;
+        biDirLeds = 0b10;
+
+        return -1;
+    }
+
+    // For cases where the encoder is spun too quickly
+    if ((rotaryEncoderStage != 0) && ((rotaryA) && (rotaryB))) rotaryEncoderStage = 0;
+
+    return 0;
+}
+
+void openLoopControl()
+{
+    // Retrieve the value to change
+    float speedChangeValue = changeFanSpeed();
+    speedChangeValue /= 100;
+
+    if (fanSpeedPWM + speedChangeValue > 1) fanSpeedPWM = 1.0f;
+    else if (fanSpeedPWM + speedChangeValue < 0.05) fanSpeedPWM = 0.05f;
+    else fanSpeedPWM += speedChangeValue;
+
+    // Set the Allowance Period for Reading Tachometer
+    if      (fanSpeedPWM <= 0.1) tacoAllowancePeriod = MILLISECOND*40;
+    else if (fanSpeedPWM <= 0.2) tacoAllowancePeriod = MILLISECOND*20;
+    else if (fanSpeedPWM <= 0.3) tacoAllowancePeriod = MILLISECOND*12;
+    else if (fanSpeedPWM <= 0.4) tacoAllowancePeriod = MILLISECOND*10;
+    else                         tacoAllowancePeriod = MILLISECOND*5;
+
+    // Change the fan speed
+    fanPWM.write(fanSpeedPWM);
+
+    int tempPWM = fanSpeedPWM*100;
+
+    // Update the Fan Speed
+    readFanSpeed();
+    sevenSegPrint(tempPWM);
+}
+
+void closedLoopControl()
+{
+    // Get the Temperature Data
+    int temperatureData = getTemperatureReading();
+    sevenSegPrint(temperatureData);
+}
+
 // =========================================================================
 // =============================== MAIN CODE ===============================
 // =========================================================================
@@ -304,18 +361,13 @@ int main()
     char temperatureData;
     float speedChangeValue = 0;
 
-    float fanSpeedPWM = 1.0f;
-
     int tempFanSpeed = 0;
 
-    Timer mainLoopTimer;
-
     // Set initial states
-    led = 0;
-    extensionBoardLed = 0;
+    boardLeds = 0b00;
 
     button.mode(PullUp);
-    button.rise(&flip);
+    button.rise(&changeMode);
 
     fanTACO.rise(&incrementTACO);
     fanTACO.fall(&checkTACOPulseWidth);
@@ -325,41 +377,22 @@ int main()
 
     // Start the timer and the main loop
     mainLoopTimer.start();
-    while (true) {
-        // Get the Temperature Data
-        temperatureData = getTemperatureReading();
-        
-        // Retrieve the value to change
-        speedChangeValue = changeFanSpeed();
-        speedChangeValue /= 100;
-
-        if (fanSpeedPWM + speedChangeValue > 1) fanSpeedPWM = 1.0f;
-        else if (fanSpeedPWM + speedChangeValue < 0.05) fanSpeedPWM = 0.0f;
-        else fanSpeedPWM += speedChangeValue;
-
-        // Set the Allowance Period for Reading Tachometer
-        if      (fanSpeedPWM <= 0.1) tacoAllowancePeriod = MILLISECOND*40;
-        else if (fanSpeedPWM <= 0.2) tacoAllowancePeriod = MILLISECOND*20;
-        else if (fanSpeedPWM <= 0.3) tacoAllowancePeriod = MILLISECOND*12;
-        else if (fanSpeedPWM <= 0.4) tacoAllowancePeriod = MILLISECOND*10;
-        else                         tacoAllowancePeriod = MILLISECOND*5;
-
-        tempFanSpeed = fanSpeedPWM * 100;
-
-        // Change the fan speed
-        fanPWM.write(fanSpeedPWM);
-
-        // Update the Fan Speed
-        if (mainLoopTimer.elapsed_time().count() >= FAN_SPEED_UPDATE_PERIOD) {
-            printf("Fan PWM: %d\tTemperature: %d\t", tempFanSpeed, temperatureData);
-            readFanSpeed(mainLoopTimer.elapsed_time().count());
-
-            mainLoopTimer.stop();
-            mainLoopTimer.reset();
-            mainLoopTimer.start();
+    while(1) {
+        switch (boardMode) {
+            case OPEN_LOOP:
+                boardLeds = 0b01;
+                openLoopControl();
+                break;
+            case CLOSED_LOOP:
+                boardLeds = 0b10;
+                closedLoopControl();
+                break;
+            case CLOSED_LOOP_EXAMPLE:
+                boardLeds = 0b11;
+                boardMode = OPEN_LOOP;
+                break;
         }
-
         // Display the Information
-        sevenSegPrint(temperatureData);
+        //sevenSegPrint(temperatureData);
     }
 }
