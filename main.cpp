@@ -4,7 +4,7 @@
  */
 
 #include "mbed.h"
-#include "ST7066_1602_6800_8BIT.c"
+#include "LCD_ST7066U.h"
 #include <cstdio>
 
 // ====================================================================
@@ -20,6 +20,8 @@ BusOut biDirLeds(PB_7,   // Bi-directional LED Side A
 
 BusOut sevenSegPWR( PC_8,  // Left Display
                     PC_6); // Right Display
+
+DigitalIn testSignal(PC_4);
 
 // This will be multiplexed with both displays. MSB will be PB_1
 BusOut sevenSegDisplay_L( PC_5,  // g
@@ -43,6 +45,14 @@ I2C tempSensorI2C(PB_9, PB_8);
 // Interrupts
 InterruptIn button(BUTTON1);
 InterruptIn fanTACO(PA_0);
+
+// LCD
+LCD LCDScreen(PA_5,  // RS
+              PA_6,  // E
+              PA_8,  // DB4
+              PB_10, // DB5
+              PB_4,  // DB6
+              PB_5); // DB7
 
 
 // Define the Serial USB Output
@@ -255,6 +265,14 @@ void readFanSpeed()
     }
 }
 
+void writeLCD()
+{
+    //LCDScreen.write("a");
+    if (testSignal) {
+        LCDScreen.write("ABCDEFGHI");
+    }
+}
+
 // =============================== I2C ===============================
 char getTemperatureReading()
 {
@@ -389,7 +407,7 @@ int main()
                 break;
             case CLOSED_LOOP_EXAMPLE:
                 boardLeds = 0b11;
-                boardMode = OPEN_LOOP;
+                writeLCD();
                 break;
         }
         // Display the Information
