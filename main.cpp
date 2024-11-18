@@ -268,9 +268,12 @@ void readFanSpeed()
 void writeLCD()
 {
     //LCDScreen.write("a");
-    if (testSignal) {
-        LCDScreen.write("ABCDEFGHI");
+    if (testSignal) { // PC4
+        LCDScreen.writeLine("ABCDEFGHI",0);
     }
+    LCDScreen.writeLine("ABCDEFGHI",1);
+    ThisThread::sleep_for(5ms);
+    //LCDScreen.clear();
 }
 
 // =============================== I2C ===============================

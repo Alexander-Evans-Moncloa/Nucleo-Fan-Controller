@@ -42,6 +42,7 @@ void LCD::init(){
     writeCommand(setDisplay);
     writeCommand(entryModeSet);
     writeCommand(clearDisplay);
+    //write("AAAAAAA");
 }
 
 void LCD::startUp(){
@@ -170,4 +171,8 @@ int LCD::address(int row, int column){
 void LCD::locate(int row, int column) {
      _row = row;
     _column = column;
+}
+
+void LCD::writeTest() {
+
 }

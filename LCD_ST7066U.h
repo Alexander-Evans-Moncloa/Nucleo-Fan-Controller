@@ -64,6 +64,7 @@ private:
     int rows() {return 2;}
     int columns() {return 16;}
     int address(int row, int column);
+    void writeTest();
     DigitalOut _rs;
     DigitalOut _e;
     DigitalOut _d4;
