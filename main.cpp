@@ -90,6 +90,11 @@ const int MIN_TACO_PERIOD = MILLISECOND*20; // Calculation based off 3000RPM
 const int MIN_TACO_POSITIVE_PULSE_WIDTH = MILLISECOND*10;
 const int MIN_TACO_ALLOWANCE_PERIOD = MILLISECOND*5;
 
+// =============================== PID CONTROL ===============================
+const float fanKp = 0.5;  // Proportional gain
+const float fanKi = 0.1;  // Integral gain
+const float fanKd = 0.05; // Derivative gain
+
 // ===========================================================================
 // =============================== GLOBAL VARS ===============================
 // ===========================================================================
@@ -103,14 +108,14 @@ float fanSpeedPWM = 1.0f;
 // Enumerator for the modes
 enum Mode {
     OPEN_LOOP,
-    CLOSED_LOOP,
-    CLOSED_LOOP_EXAMPLE
+    CLOSED_LOOP_FAN,
+    CLOSED_LOOP_TEMP
 };
 enum Mode boardMode = OPEN_LOOP;
 
 // Override the Post Increment Value so that it loops across the enumerator
 Mode operator++(Mode& mode, int) {
-    if (mode == Mode::CLOSED_LOOP_EXAMPLE) {
+    if (mode == Mode::CLOSED_LOOP_TEMP) {
         mode = Mode::OPEN_LOOP; // Wrap around to the beginning if needed
     } else {
         mode = static_cast<Mode>(static_cast<int>(mode) + 1);
@@ -200,7 +205,6 @@ void intToChar(int num, char *result) {
  
     result[len] = '\0';
 }
- 
 
 // =============================== ANALYTICS ===============================
 
@@ -263,23 +267,24 @@ void sevenSegPrint(int valueToDisplay)
 
 int readFanSpeed() 
 { 
-    int timeDelta = mainLoopTimer.elapsed_time().count();
+    //int timeDelta = mainLoopTimer.elapsed_time().count();
     if (mainLoopTimer.elapsed_time().count() >= FAN_SPEED_UPDATE_PERIOD) {
         mainLoopTimer.stop();
         // Remove random time variations in the 10us range
-        timeDelta -= (timeDelta % 100);
+        //timeDelta -= (timeDelta % 1000);
 
         if (fanTACOCounter == 1) fanTACOCounter = 2;
         // RPM = (TACO Ticks/2) / (Time converted from microseconds to minutes)
-        int fanRPM = ((float)fanTACOCounter/timeDelta) * 30000000;
+        //int fanRPM = ((float)fanTACOCounter/timeDelta) * 30000000;
+        int fanRPM = fanTACOCounter*60; // Assume 0.5s time delta
         if (fanRPM > maxFanRPM) maxFanRPM = fanRPM;
 
         // Calculate Debug Info
         int fanSpeedPercentage = (int)(((float)fanRPM/maxFanRPM)*100);
 
         // Print Debug Info
-        printf("Fan RPM: %d\t Max Fan Speed: %d\tFan Speed Percentage: %d\tFan TACO: %d\tTime Delta: %d\n", 
-                fanRPM, maxFanRPM, fanSpeedPercentage, fanTACOCounter, timeDelta);
+        printf("Fan RPM: %d\t Max Fan Speed: %d\tFan Speed Percentage: %d\tFan TACO: %d\n", 
+                fanRPM, maxFanRPM, fanSpeedPercentage, fanTACOCounter);
         
         fanTACOCounter = 0;
 
@@ -300,14 +305,7 @@ int readFanSpeed()
 
         return fanRPM;
     }
-}
-
-void writeLCD() // Limit to 32 characters, 16 per row.
-{
-    LCDScreen.writeLine("ABCDEFGH",0);
-    LCDScreen.writeLine("01234567",0);
-    //LCDScreen.write("ABCDEFGHIJKLMNOP0123456789012345");
-    //LCDScreen.clear();
+    return 0;
 }
 
 // =============================== I2C ===============================
@@ -374,37 +372,59 @@ int changeFanSpeed()
 
 void openLoopControl()
 {
-    // Retrieve the value to change
-    float speedChangeValue = changeFanSpeed();
-    speedChangeValue /= 100;
+    float speedChangeValue = 0.0;
+    while (boardMode == OPEN_LOOP) {
+        // Retrieve the value to change
+        speedChangeValue = changeFanSpeed();
+        speedChangeValue /= 100;
 
-    // Apply Speed Change
-    if (fanSpeedPWM + speedChangeValue > 1) fanSpeedPWM = 1.0f;
-    else if (fanSpeedPWM + speedChangeValue < 0.05) fanSpeedPWM = 0.05f;
-    else fanSpeedPWM += speedChangeValue;
+        // Apply Speed Change
+        if      (fanSpeedPWM + speedChangeValue > 1) fanSpeedPWM = 1.0f;
+        else if (fanSpeedPWM + speedChangeValue < 0.05) fanSpeedPWM = 0.05f;
+        else    fanSpeedPWM += speedChangeValue;
 
-    // Set the Allowance Period for Reading Tachometer
-    if      (fanSpeedPWM <= 0.1) tacoAllowancePeriod = MILLISECOND*35; // Previous Multiplier: 40
-    else if (fanSpeedPWM <= 0.2) tacoAllowancePeriod = MILLISECOND*20;
-    else if (fanSpeedPWM <= 0.3) tacoAllowancePeriod = MILLISECOND*12;
-    else if (fanSpeedPWM <= 0.4) tacoAllowancePeriod = MILLISECOND*10;
-    else                         tacoAllowancePeriod = MILLISECOND*5;
+        // Set the Allowance Period for Reading Tachometer
+        if      (fanSpeedPWM <= 0.1) tacoAllowancePeriod = MILLISECOND*35; // Previous Multiplier: 40
+        else if (fanSpeedPWM <= 0.2) tacoAllowancePeriod = MILLISECOND*20;
+        else if (fanSpeedPWM <= 0.3) tacoAllowancePeriod = MILLISECOND*12;
+        else if (fanSpeedPWM <= 0.4) tacoAllowancePeriod = MILLISECOND*10;
+        else                         tacoAllowancePeriod = MILLISECOND*5;
 
-    // Change the fan speed
-    fanPWM.write(fanSpeedPWM);
+        // Change the fan speed
+        fanPWM.write(fanSpeedPWM);
 
-    int tempPWM = fanSpeedPWM*100;
+        int tempPWM = fanSpeedPWM*100;
 
-    // Update the Fan Speed
-    int currentFanSpeed = readFanSpeed();
-    sevenSegPrint(tempPWM);
+        // Update the Fan Speed
+        int currentFanSpeed = readFanSpeed();
+        sevenSegPrint(tempPWM);
+    }
 }
 
-void closedLoopControl()
+void closedLoopControlFan()
 {
-    // Get the Temperature Data
-    int temperatureData = getTemperatureReading();
-    sevenSegPrint(temperatureData);
+    // Desired speed (setpoint in RPM)
+    int setpoint = 1500; // Adjust as needed
+
+    // PID state variables
+    float integral = 0.0f;
+    float previousError = 0.0f;
+    
+    while (boardMode == CLOSED_LOOP_FAN) {
+        LCDScreen.clear();
+        LCDScreen.writeLine("ABCDEFGH",0);
+        LCDScreen.writeLine("01234567",0);
+    }
+}
+
+void closedLoopControlTemp() // Limit to 32 characters, 16 per row.
+{
+    int temperatureData;
+    while (boardMode == CLOSED_LOOP_TEMP) {
+        // Get the Temperature Data
+        temperatureData = getTemperatureReading();
+        sevenSegPrint(temperatureData);
+    }
 }
 
 // =========================================================================
@@ -413,10 +433,6 @@ void closedLoopControl()
 
 int main() 
 {
-    // Local Variables
-    char temperatureData;
-    float speedChangeValue = 0;
-    
     // Set initial states
     boardLeds = 0b00;
 
@@ -432,21 +448,14 @@ int main()
     // Start the timer and the main loop
     mainLoopTimer.start();
     while(1) {
-        switch (boardMode) {
-            case OPEN_LOOP:
-                boardLeds = 0b01;
-                openLoopControl();
-                break;
-            case CLOSED_LOOP:
-                boardLeds = 0b10;
-                closedLoopControl();
-                break;
-            case CLOSED_LOOP_EXAMPLE:
-                boardLeds = 0b11;
-                writeLCD();
-                break;
-        }
-        // Display the Information
-        //sevenSegPrint(temperatureData);
+
+        boardLeds = 0b01;
+        openLoopControl();
+
+        boardLeds = 0b10;
+        closedLoopControlFan();
+
+        boardLeds = 0b11;
+        closedLoopControlTemp();
     }
 }
