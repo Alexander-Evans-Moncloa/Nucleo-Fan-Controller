@@ -30,7 +30,7 @@
  */
  
 #define wakeUp 0x30       // 
-#define functionSet 0x28 // Sets the interface data type to 4 bits, 2 lines, and font size 5x8. 0x28 = 0010 1000
+#define functionSet 0x38 // Sets the interface data type to 8 bits, 2 lines, and font size 5x8. 0x38 = 0011 1000
 #define returnHome 0x02    // Sets the cursor to the beginning of the screen. 0x02 = 0000 0010
 #define setCursor 0x10 // Sets cursor moving and display shift, and direction without changing DDRAM data. 0x10 = 0001 0000
 #define setDisplay 0x0C   // Sets Entire Display on, Display on, Cursor on. 0x0C = 0000 1011
@@ -46,7 +46,7 @@
  
 class LCD {
 public:
-    LCD(PinName rs, PinName e, PinName d4, PinName d5, PinName d6, PinName d7);
+    LCD(PinName rs, PinName e, PinName d0, PinName d1, PinName d2, PinName d3, PinName d4, PinName d5, PinName d6, PinName d7);
     void clear();
     void write(const char* text);
     void writeLine(const char* text, int line);
@@ -54,7 +54,6 @@ public:
     void writeCharacters(const char* text, int row, int column);
 private:
     void init();
-    void startUp();
     void locate(int row, int column);
     void writeCharacter(char value);
     void writeCommand(char value);
@@ -67,10 +66,12 @@ private:
     void writeTest();
     DigitalOut _rs;
     DigitalOut _e;
-    DigitalOut _d4;
+
+    BusOut _dataBus;
+    /*DigitalOut _d4;
     DigitalOut _d5;
     DigitalOut _d6;
-    DigitalOut _d7;
+    DigitalOut _d7;*/
     int _row;
     int _column;
 };

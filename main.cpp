@@ -6,6 +6,8 @@
 #include "mbed.h"
 #include "LCD_ST7066U.h"
 #include <cstdio>
+#include <cstring>
+#include <string>
 
 // ====================================================================
 // =============================== PINS ===============================
@@ -49,6 +51,10 @@ InterruptIn fanTACO(PA_0);
 // LCD
 LCD LCDScreen(PA_5,  // RS
               PA_6,  // E
+              PA_7,  // DB0
+              PB_6,  // DB1
+              PC_7,  // DB2
+              PA_9,  // DB3
               PA_8,  // DB4
               PB_10, // DB5
               PB_4,  // DB6
@@ -78,7 +84,7 @@ const int HALF_SECOND    = 500000;
 
 // Periods
 const int FAN_PWM_PERIOD = MILLISECOND*10; // Prev Val: MILLISECOND*10
-const int FAN_SPEED_UPDATE_PERIOD = HALF_SECOND*4;
+const int FAN_SPEED_UPDATE_PERIOD = HALF_SECOND;
 
 const int MIN_TACO_PERIOD = MILLISECOND*20; // Calculation based off 3000RPM
 const int MIN_TACO_POSITIVE_PULSE_WIDTH = MILLISECOND*10;
@@ -178,6 +184,24 @@ void rotaryEncoderDirectionLED()
     if ((rotaryEncoderStage != 0) && ((rotaryA) && (rotaryB))) rotaryEncoderStage = 0;
 }
 
+void intToChar(int num, char *result) {
+    int temp = num;
+    int len = 0;
+ 
+    while (temp > 0) {
+        len++;
+        temp /= 10;
+    }
+ 
+    for (int i = len - 1; i >= 0; i--) {
+        result[i] = num % 10 + '0';
+        num /= 10;
+    }
+ 
+    result[len] = '\0';
+}
+ 
+
 // =============================== ANALYTICS ===============================
 
 void sevenSegPrintDigit(int value)
@@ -237,7 +261,7 @@ void sevenSegPrint(int valueToDisplay)
     
 }
 
-void readFanSpeed() 
+int readFanSpeed() 
 { 
     int timeDelta = mainLoopTimer.elapsed_time().count();
     if (mainLoopTimer.elapsed_time().count() >= FAN_SPEED_UPDATE_PERIOD) {
@@ -245,34 +269,44 @@ void readFanSpeed()
         // Remove random time variations in the 10us range
         timeDelta -= (timeDelta % 100);
 
+        if (fanTACOCounter == 1) fanTACOCounter = 2;
         // RPM = (TACO Ticks/2) / (Time converted from microseconds to minutes)
         int fanRPM = ((float)fanTACOCounter/timeDelta) * 30000000;
         if (fanRPM > maxFanRPM) maxFanRPM = fanRPM;
 
         // Calculate Debug Info
         int fanSpeedPercentage = (int)(((float)fanRPM/maxFanRPM)*100);
-        int tempFanRPM = (int)round(fanRPM);
-        int tempMaxFanRPM = (int)round(maxFanRPM);
 
         // Print Debug Info
         printf("Fan RPM: %d\t Max Fan Speed: %d\tFan Speed Percentage: %d\tFan TACO: %d\tTime Delta: %d\n", 
-                tempFanRPM, tempMaxFanRPM, fanSpeedPercentage, fanTACOCounter, timeDelta);
+                fanRPM, maxFanRPM, fanSpeedPercentage, fanTACOCounter, timeDelta);
         
         fanTACOCounter = 0;
 
+        // Display the RPM
+        char currentRpmChar[16];
+        sprintf(currentRpmChar, "RPM: %d", fanRPM);
+
+        char maxRpmChar[16];
+        sprintf(maxRpmChar, "Max RPM: %d", maxFanRPM);
+
+        LCDScreen.clear();
+        LCDScreen.writeLine(maxRpmChar, 0);
+        LCDScreen.writeLine(currentRpmChar, 1);
+
+        // Reset the Timers
         mainLoopTimer.reset();
         mainLoopTimer.start();
+
+        return fanRPM;
     }
 }
 
-void writeLCD()
+void writeLCD() // Limit to 32 characters, 16 per row.
 {
-    //LCDScreen.write("a");
-    if (testSignal) { // PC4
-        LCDScreen.writeLine("ABCDEFGHI",0);
-    }
-    LCDScreen.writeLine("ABCDEFGHI",1);
-    ThisThread::sleep_for(5ms);
+    LCDScreen.writeLine("ABCDEFGH",0);
+    LCDScreen.writeLine("01234567",0);
+    //LCDScreen.write("ABCDEFGHIJKLMNOP0123456789012345");
     //LCDScreen.clear();
 }
 
@@ -344,12 +378,13 @@ void openLoopControl()
     float speedChangeValue = changeFanSpeed();
     speedChangeValue /= 100;
 
+    // Apply Speed Change
     if (fanSpeedPWM + speedChangeValue > 1) fanSpeedPWM = 1.0f;
     else if (fanSpeedPWM + speedChangeValue < 0.05) fanSpeedPWM = 0.05f;
     else fanSpeedPWM += speedChangeValue;
 
     // Set the Allowance Period for Reading Tachometer
-    if      (fanSpeedPWM <= 0.1) tacoAllowancePeriod = MILLISECOND*40;
+    if      (fanSpeedPWM <= 0.1) tacoAllowancePeriod = MILLISECOND*35; // Previous Multiplier: 40
     else if (fanSpeedPWM <= 0.2) tacoAllowancePeriod = MILLISECOND*20;
     else if (fanSpeedPWM <= 0.3) tacoAllowancePeriod = MILLISECOND*12;
     else if (fanSpeedPWM <= 0.4) tacoAllowancePeriod = MILLISECOND*10;
@@ -361,7 +396,7 @@ void openLoopControl()
     int tempPWM = fanSpeedPWM*100;
 
     // Update the Fan Speed
-    readFanSpeed();
+    int currentFanSpeed = readFanSpeed();
     sevenSegPrint(tempPWM);
 }
 
@@ -381,9 +416,7 @@ int main()
     // Local Variables
     char temperatureData;
     float speedChangeValue = 0;
-
-    int tempFanSpeed = 0;
-
+    
     // Set initial states
     boardLeds = 0b00;
 

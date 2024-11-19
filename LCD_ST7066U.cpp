@@ -26,7 +26,7 @@
  * declared in the header file.
  */
 
-LCD::LCD(PinName rs, PinName e, PinName d4, PinName d5, PinName d6, PinName d7): _rs(rs), _e(e), _d4(d4), _d5(d5), _d6(d6), _d7(d7), _row(0), _column(0)
+LCD::LCD(PinName rs, PinName e, PinName d0, PinName d1, PinName d2, PinName d3, PinName d4, PinName d5, PinName d6, PinName d7): _rs(rs), _e(e), _dataBus(d0,d1,d2,d3,d4,d5,d6,d7), _row(0), _column(0)
 {
     ThisThread::sleep_for(100ms);
     LCD::init();
@@ -35,51 +35,24 @@ LCD::LCD(PinName rs, PinName e, PinName d4, PinName d5, PinName d6, PinName d7):
 void LCD::init(){
     ThisThread::sleep_for(100ms);
     
-    startUp();
-    
+    _e = 0;
     writeCommand(functionSet);
+    writeCommand(functionSet);
+
     writeCommand(setCursor);
     writeCommand(setDisplay);
     writeCommand(entryModeSet);
     writeCommand(clearDisplay);
-    //write("AAAAAAA");
-}
-
-void LCD::startUp(){
-    _e = 0;
-    
-    for(int i = 0; i < 3; i++){
-        _d7.write(0b0);
-        _d6.write(0b0);
-        _d5.write(0b1);
-        _d4.write(0b1);
-        writeTime();
-    }
-    _d7.write(0b0);
-    _d6.write(0b0);
-    _d5.write(0b1);
-    _d4.write(0b0);
-    writeTime();
 }
 
 void LCD::writeTime(){
     _e = 1;
-    ThisThread::sleep_for(5ms);
+    ThisThread::sleep_for(1ms);
     _e = 0;
 }
 
 void LCD::writeData(char value){
-    //Send upper four bits
-    _d7.write((value >> 7) & 0b1);
-    _d6.write((value >> 6) & 0b1);
-    _d5.write((value >> 5) & 0b1);
-    _d4.write((value >> 4) & 0b1);
-    writeTime();
-    //Send lower four bits
-    _d7.write((value >> 3) & 0b1);
-    _d6.write((value >> 2) & 0b1);
-    _d5.write((value >> 1) & 0b1);
-    _d4.write(value & 0b1);
+    _dataBus.write(value);
     writeTime();
 }
 
