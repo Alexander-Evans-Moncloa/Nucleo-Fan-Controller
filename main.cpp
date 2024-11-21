@@ -8,7 +8,6 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
-#include <deque>
 
 // ====================================================================
 // =============================== PINS ===============================
@@ -98,9 +97,9 @@ const int MIN_TACO_ALLOWANCE_PERIOD = MILLISECOND*5;
 // Kd = 100
 
 
-const float fanKp = 0.00035;  // Proportional gain
-const float fanKi = 0.0000000001;  // Integral gain
-const float fanKd = 150; // Derivative gain
+const float fanKp = 0.0004;  // Proportional gain
+const float fanKi = 0.00000000002;  // Integral gain
+const float fanKd = 125; // Derivative gain
 
 // ===========================================================================
 // =============================== GLOBAL VARS ===============================
@@ -113,9 +112,8 @@ int currentFanSpeed = 0;
 int maxFanRPM = 0;
 
 int tacoAllowancePeriod = MILLISECOND*5;
-float fanSpeedPWM = 1.0f;
-
-deque<int> fanSpeedPwmQueue{1,1,1,1,1};
+int tacoDisturbancePeriod = MILLISECOND*8;
+float fanSpeedPWM = 1.0;
 
 // Enumerator for the modes
 enum Mode {
@@ -201,31 +199,12 @@ void rotaryEncoderDirectionLED()
     if ((rotaryEncoderStage != 0) && ((rotaryA) && (rotaryB))) rotaryEncoderStage = 0;
 }
 
-float calculateAverage(deque<float>& queue) 
-{
-    if (queue.empty()) {
-        return 0.0; // Return 0 to indicate an empty queue
-    }
-
-    float sum = 0;
-    for (float value : queue) {
-        sum += value;
-    }
-
-    return sum / queue.size();
-}
-
-void rotateQueue(deque<float>& queue, float newValue)
-{
-    queue.pop_back();
-    queue.push_front(newValue);
-}
-
 void adjustPwmAllowance()
 {
     // Set the Allowance Period for Reading Tachometer
     if      (fanSpeedPWM <= 0.1) tacoAllowancePeriod = MILLISECOND*35; // Previous Multiplier: 40, 35
-    else if (fanSpeedPWM <= 0.20) tacoAllowancePeriod = MILLISECOND*12; // Previous Multiplier: 20, 10
+    else if (fanSpeedPWM <= 0.15) tacoAllowancePeriod = MILLISECOND*25;
+    else if (fanSpeedPWM <= 0.20) tacoAllowancePeriod = MILLISECOND*15; // Previous Multiplier: 20, 10
     //else if (fanSpeedPWM <= 0.3) tacoAllowancePeriod = MILLISECOND*15;
     //else if (fanSpeedPWM <= 0.4) tacoAllowancePeriod = MILLISECOND*10;
     else                         tacoAllowancePeriod = MILLISECOND*5;
