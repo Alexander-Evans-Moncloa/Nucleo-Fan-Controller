@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <deque>
 
 // ====================================================================
 // =============================== PINS ===============================
@@ -91,9 +92,15 @@ const int MIN_TACO_POSITIVE_PULSE_WIDTH = MILLISECOND*10;
 const int MIN_TACO_ALLOWANCE_PERIOD = MILLISECOND*5;
 
 // =============================== PID CONTROL ===============================
-const float fanKp = 0.5;  // Proportional gain
-const float fanKi = 0.1;  // Integral gain
-const float fanKd = 0.05; // Derivative gain
+// Previous Good Values:
+// Kp = 0.00004
+// Ki = 0.0
+// Kd = 100
+
+
+const float fanKp = 0.00035;  // Proportional gain
+const float fanKi = 0.0000000001;  // Integral gain
+const float fanKd = 150; // Derivative gain
 
 // ===========================================================================
 // =============================== GLOBAL VARS ===============================
@@ -101,9 +108,14 @@ const float fanKd = 0.05; // Derivative gain
 
 short int rotaryEncoderStage = 0;
 int fanTACOCounter = 0;
+
+int currentFanSpeed = 0;
 int maxFanRPM = 0;
+
 int tacoAllowancePeriod = MILLISECOND*5;
 float fanSpeedPWM = 1.0f;
+
+deque<int> fanSpeedPwmQueue{1,1,1,1,1};
 
 // Enumerator for the modes
 enum Mode {
@@ -111,7 +123,7 @@ enum Mode {
     CLOSED_LOOP_FAN,
     CLOSED_LOOP_TEMP
 };
-enum Mode boardMode = OPEN_LOOP;
+enum Mode boardMode = CLOSED_LOOP_FAN;
 
 // Override the Post Increment Value so that it loops across the enumerator
 Mode operator++(Mode& mode, int) {
@@ -189,21 +201,34 @@ void rotaryEncoderDirectionLED()
     if ((rotaryEncoderStage != 0) && ((rotaryA) && (rotaryB))) rotaryEncoderStage = 0;
 }
 
-void intToChar(int num, char *result) {
-    int temp = num;
-    int len = 0;
- 
-    while (temp > 0) {
-        len++;
-        temp /= 10;
+float calculateAverage(deque<float>& queue) 
+{
+    if (queue.empty()) {
+        return 0.0; // Return 0 to indicate an empty queue
     }
- 
-    for (int i = len - 1; i >= 0; i--) {
-        result[i] = num % 10 + '0';
-        num /= 10;
+
+    float sum = 0;
+    for (float value : queue) {
+        sum += value;
     }
- 
-    result[len] = '\0';
+
+    return sum / queue.size();
+}
+
+void rotateQueue(deque<float>& queue, float newValue)
+{
+    queue.pop_back();
+    queue.push_front(newValue);
+}
+
+void adjustPwmAllowance()
+{
+    // Set the Allowance Period for Reading Tachometer
+    if      (fanSpeedPWM <= 0.1) tacoAllowancePeriod = MILLISECOND*35; // Previous Multiplier: 40, 35
+    else if (fanSpeedPWM <= 0.20) tacoAllowancePeriod = MILLISECOND*12; // Previous Multiplier: 20, 10
+    //else if (fanSpeedPWM <= 0.3) tacoAllowancePeriod = MILLISECOND*15;
+    //else if (fanSpeedPWM <= 0.4) tacoAllowancePeriod = MILLISECOND*10;
+    else                         tacoAllowancePeriod = MILLISECOND*5;
 }
 
 // =============================== ANALYTICS ===============================
@@ -265,50 +290,6 @@ void sevenSegPrint(int valueToDisplay)
     
 }
 
-int readFanSpeed() 
-{ 
-    //int timeDelta = mainLoopTimer.elapsed_time().count();
-    if (mainLoopTimer.elapsed_time().count() >= FAN_SPEED_UPDATE_PERIOD) {
-        mainLoopTimer.stop();
-        // Remove random time variations in the 10us range
-        //timeDelta -= (timeDelta % 1000);
-
-        if (fanTACOCounter == 1) fanTACOCounter = 2;
-        // RPM = (TACO Ticks/2) / (Time converted from microseconds to minutes)
-        //int fanRPM = ((float)fanTACOCounter/timeDelta) * 30000000;
-        int fanRPM = fanTACOCounter*60; // Assume 0.5s time delta
-        if (fanRPM > maxFanRPM) maxFanRPM = fanRPM;
-
-        // Calculate Debug Info
-        int fanSpeedPercentage = (int)(((float)fanRPM/maxFanRPM)*100);
-
-        // Print Debug Info
-        printf("Fan RPM: %d\t Max Fan Speed: %d\tFan Speed Percentage: %d\tFan TACO: %d\n", 
-                fanRPM, maxFanRPM, fanSpeedPercentage, fanTACOCounter);
-        
-        fanTACOCounter = 0;
-
-        // Display the RPM
-        char currentRpmChar[16];
-        sprintf(currentRpmChar, "RPM: %d", fanRPM);
-
-        char maxRpmChar[16];
-        sprintf(maxRpmChar, "Max RPM: %d", maxFanRPM);
-
-        LCDScreen.clear();
-        LCDScreen.writeLine(maxRpmChar, 0);
-        LCDScreen.writeLine(currentRpmChar, 1);
-
-        // Reset the Timers
-        mainLoopTimer.reset();
-        mainLoopTimer.start();
-
-        return fanRPM;
-    }
-    return 0;
-}
-
-// =============================== I2C ===============================
 char getTemperatureReading()
 {
     char tempSensData[2];
@@ -334,8 +315,39 @@ char getTemperatureReading()
     return tempSensData[0];
 }
 
-// =============================== CONTROL ===============================
+int readFanSpeed() 
+{ 
+    //int timeDelta = mainLoopTimer.elapsed_time().count();
+    if (mainLoopTimer.elapsed_time().count() >= FAN_SPEED_UPDATE_PERIOD) {
+        mainLoopTimer.stop();
+        // Remove random time variations in the 10us range
+        //timeDelta -= (timeDelta % 1000);
 
+        if (fanTACOCounter == 1) fanTACOCounter = 2;
+        // RPM = (TACO Ticks/2) / (Time converted from microseconds to minutes)
+        //int fanRPM = ((float)fanTACOCounter/timeDelta) * 30000000;
+        int fanRPM = fanTACOCounter*60; // Assume 0.5s time delta
+        if (fanRPM > maxFanRPM) maxFanRPM = fanRPM;
+
+        // Calculate Debug Info
+        int fanSpeedPercentage = (int)(((float)fanRPM/maxFanRPM)*100);
+
+        // Print Debug Info
+        printf("Fan PWM: %d\tFan RPM: %d\tMax Fan Speed: %d\tFan Speed Percentage: %d\tFan TACO: %d\n", 
+                (int)(fanSpeedPWM*100),fanRPM, maxFanRPM, fanSpeedPercentage, fanTACOCounter);
+        
+        fanTACOCounter = 0;
+
+        // Reset the Timers
+        mainLoopTimer.reset();
+        mainLoopTimer.start();
+
+        return fanRPM;
+    }
+    return currentFanSpeed;
+}
+
+// =============================== CONTROL ===============================
 int changeFanSpeed()
 {   // Check OneNote for details
     // Returns +1 to increase speed, Returns -1 to decrease speed, Returns 0 to keep it constant
@@ -370,6 +382,35 @@ int changeFanSpeed()
     return 0;
 }
 
+float computePID(int setpoint, int currentSpeed, float &integral, float &previousError, float dt) {
+    int error = setpoint - currentSpeed;
+
+    // Proportional term
+    float P = fanKp * error;
+
+    // Integral term
+    integral += error * dt;
+    float I = fanKi * integral;
+
+    // Derivative term
+    float derivative = (error - previousError) / dt;
+    float D = fanKd * derivative;
+
+    // Update for next iteration
+    previousError = error;
+
+    // Compute the PID output
+    float output = P + I + D;
+
+    // Clamp output to valid range
+    if (output >= 1) output = 1;
+    else if (output <= -1) output = -1;
+
+    return output;
+}
+
+// =============================== MODES ===============================
+
 void openLoopControl()
 {
     float speedChangeValue = 0.0;
@@ -383,12 +424,7 @@ void openLoopControl()
         else if (fanSpeedPWM + speedChangeValue < 0.05) fanSpeedPWM = 0.05f;
         else    fanSpeedPWM += speedChangeValue;
 
-        // Set the Allowance Period for Reading Tachometer
-        if      (fanSpeedPWM <= 0.1) tacoAllowancePeriod = MILLISECOND*35; // Previous Multiplier: 40
-        else if (fanSpeedPWM <= 0.2) tacoAllowancePeriod = MILLISECOND*20;
-        else if (fanSpeedPWM <= 0.3) tacoAllowancePeriod = MILLISECOND*12;
-        else if (fanSpeedPWM <= 0.4) tacoAllowancePeriod = MILLISECOND*10;
-        else                         tacoAllowancePeriod = MILLISECOND*5;
+        adjustPwmAllowance();
 
         // Change the fan speed
         fanPWM.write(fanSpeedPWM);
@@ -396,8 +432,23 @@ void openLoopControl()
         int tempPWM = fanSpeedPWM*100;
 
         // Update the Fan Speed
-        int currentFanSpeed = readFanSpeed();
+        currentFanSpeed = readFanSpeed();
+
+        // Display PWM
         sevenSegPrint(tempPWM);
+
+        if (mainLoopTimer.elapsed_time().count() >= (HALF_SECOND-TENTH_SECOND)) {
+            // Display the RPM
+            char currentRpmChar[16];
+            sprintf(currentRpmChar, "RPM: %d", currentFanSpeed);
+
+            char maxRpmChar[16];
+            sprintf(maxRpmChar, "Max RPM: %d", maxFanRPM);
+
+            LCDScreen.clear();
+            LCDScreen.writeLine(maxRpmChar, 0);
+            LCDScreen.writeLine(currentRpmChar, 1);
+        }
     }
 }
 
@@ -405,15 +456,54 @@ void closedLoopControlFan()
 {
     // Desired speed (setpoint in RPM)
     int setpoint = 1500; // Adjust as needed
+    int speedChangeValue = 0;
 
     // PID state variables
     float integral = 0.0f;
     float previousError = 0.0f;
     
+    // For Display
+    char rpmChar[16];
+    char targetRpmChar[16];
+    
     while (boardMode == CLOSED_LOOP_FAN) {
-        LCDScreen.clear();
-        LCDScreen.writeLine("ABCDEFGH",0);
-        LCDScreen.writeLine("01234567",0);
+        // Calculate time step
+        float dt = FAN_SPEED_UPDATE_PERIOD;
+
+        speedChangeValue = changeFanSpeed();
+        speedChangeValue *= 60;
+
+        // Apply Speed Change
+        if      (setpoint + speedChangeValue > 2700) setpoint = 2700;
+        else if (setpoint + speedChangeValue < 120) setpoint = 120;
+        else    setpoint += speedChangeValue;
+
+        // Compute new PWM value using PID. Update Every 5 Seconds
+        if (mainLoopTimer.elapsed_time().count() >= FAN_SPEED_UPDATE_PERIOD) {
+            // Measure current speed
+            currentFanSpeed = readFanSpeed();
+            float pwm = computePID(setpoint, currentFanSpeed, integral, previousError, dt);
+
+            fanSpeedPWM += pwm;
+
+            if (fanSpeedPWM >= 1) fanSpeedPWM = 1;
+            if (fanSpeedPWM <= 0.05) fanSpeedPWM = 0.05;
+
+            // Apply new PWM value
+            fanPWM.write(fanSpeedPWM);
+            //setFanSpeed(pwm);
+            //printf("Fan PWM: %d\n", (int)(fanSpeedPWM*100));
+            adjustPwmAllowance();
+
+            sprintf(targetRpmChar, "Target RPM: %d", setpoint);
+
+            // Display the RPM
+            LCDScreen.clear();
+            LCDScreen.writeLine(targetRpmChar, 0);
+
+            sprintf(rpmChar, "RPM:%d PWM:%d", currentFanSpeed, (int)(fanSpeedPWM*100));
+            LCDScreen.writeLine(rpmChar, 1);
+        }
     }
 }
 
@@ -451,11 +541,14 @@ int main()
 
         boardLeds = 0b01;
         openLoopControl();
+        LCDScreen.clear();
 
         boardLeds = 0b10;
         closedLoopControlFan();
+        LCDScreen.clear();
 
         boardLeds = 0b11;
         closedLoopControlTemp();
+        LCDScreen.clear();
     }
 }
