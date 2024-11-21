@@ -97,9 +97,9 @@ const int MIN_TACO_ALLOWANCE_PERIOD = MILLISECOND*5;
 // Kd = 100
 
 
-const float fanKp = 0.0004;  // Proportional gain
-const float fanKi = 0.00000000002;  // Integral gain
-const float fanKd = 125; // Derivative gain
+const float fanKp = 0.0002;  // Proportional gain
+const float fanKi = 0.00000000001;  // Integral gain
+const float fanKd = 150; // Derivative gain
 
 // ===========================================================================
 // =============================== GLOBAL VARS ===============================
@@ -156,6 +156,8 @@ void changeMode()
 
 void incrementTACO()
 {
+    tacoAllowancePeriod = 10250 - 9900*fanSpeedPWM; // Derived From Excel sheet
+    if (tacoAllowancePeriod <= MILLISECOND) tacoAllowancePeriod = MILLISECOND;
     tacoPeriodTimer.start();
 }
 
@@ -403,7 +405,7 @@ void openLoopControl()
         else if (fanSpeedPWM + speedChangeValue < 0.05) fanSpeedPWM = 0.05f;
         else    fanSpeedPWM += speedChangeValue;
 
-        adjustPwmAllowance();
+        //adjustPwmAllowance();
 
         // Change the fan speed
         fanPWM.write(fanSpeedPWM);
@@ -461,10 +463,13 @@ void closedLoopControlFan()
         if (mainLoopTimer.elapsed_time().count() >= FAN_SPEED_UPDATE_PERIOD) {
             // Measure current speed
             currentFanSpeed = readFanSpeed();
+
+            // Set the PWM Change Value
             float pwm = computePID(setpoint, currentFanSpeed, integral, previousError, dt);
 
             fanSpeedPWM += pwm;
 
+            // Clamp the PWM Value
             if (fanSpeedPWM >= 1) fanSpeedPWM = 1;
             if (fanSpeedPWM <= 0.05) fanSpeedPWM = 0.05;
 
@@ -472,7 +477,7 @@ void closedLoopControlFan()
             fanPWM.write(fanSpeedPWM);
             //setFanSpeed(pwm);
             //printf("Fan PWM: %d\n", (int)(fanSpeedPWM*100));
-            adjustPwmAllowance();
+            //adjustPwmAllowance();
 
             sprintf(targetRpmChar, "Target RPM: %d", setpoint);
 
