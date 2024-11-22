@@ -78,18 +78,23 @@ const int MILLISECOND    = 1000;
 const int TENTH_SECOND   = 100000;
 const int QUARTER_SECOND = 250000;
 const int HALF_SECOND    = 500000;
+const int SECOND         = 1000000;
 
 // =============================== MILLISECOND ===============================
 #define BLINKING_RATE     500ms
 #define MULTIPLEX_BLINKING_RATE 5ms
 
-// =============================== PERIODS ===============================
+// =============================== FAN DETAILS ===============================
 const int FAN_PWM_PERIOD = MILLISECOND*10; // Prev Val: MILLISECOND*10
 const int FAN_SPEED_UPDATE_PERIOD = HALF_SECOND;
 
 const int MIN_TACO_PERIOD = MILLISECOND*20; // Calculation based off 3000RPM
 const int MIN_TACO_POSITIVE_PULSE_WIDTH = MILLISECOND*10;
 const int MIN_TACO_ALLOWANCE_PERIOD = MILLISECOND*5;
+
+const int MAX_FAN_SPEED = 2700;
+const int MIN_FAN_SPEED = 120;
+const int MID_FAN_SPEED = 1440;
 
 // =============================== PID CONTROL ===============================
 const float fanKp = 0.00014;  // Proportional gain
@@ -121,13 +126,14 @@ float fanSpeedPWM = 1.0;
 enum Mode {
     OPEN_LOOP,
     CLOSED_LOOP_FAN,
-    CLOSED_LOOP_TEMP
+    CLOSED_LOOP_TEMP,
+    CLOSED_LOOP_FAN_DEMO
 };
 enum Mode boardMode = CLOSED_LOOP_FAN;
 
 // Override the Post Increment Value so that it loops across the enumerator
 Mode operator++(Mode& mode, int) {
-    if (mode == Mode::CLOSED_LOOP_TEMP) {
+    if (mode == Mode::CLOSED_LOOP_FAN_DEMO) {
         mode = Mode::OPEN_LOOP; // Wrap around to the beginning if needed
     } else {
         mode = static_cast<Mode>(static_cast<int>(mode) + 1);
@@ -472,7 +478,6 @@ void openLoopControl()
 
         // Update the Fan Speed
         currentFanSpeed = readFanSpeed();
-        printf("\n"); // Used to print a new line 
 
         // Display PWM
         sevenSegPrint(tempPWM);
@@ -488,6 +493,7 @@ void openLoopControl()
             LCDScreen.clear();
             LCDScreen.writeLine(maxRpmChar, 0);
             LCDScreen.writeLine(currentRpmChar, 1);
+            printf("\n"); // Used to print a new line 
         }
     }
 }
@@ -608,6 +614,71 @@ void closedLoopControlTemp() // Limit to 32 characters, 16 per row.
     }
 }
 
+// Closed Loop Control for Fan Speed Setpoint changes from min and max every 45 seconds
+void closedLoopFanDemo()
+{
+    // Desired speed (setpoint in RPM)
+    int setpoint[4] = {MAX_FAN_SPEED, MID_FAN_SPEED, MIN_FAN_SPEED, MID_FAN_SPEED};
+
+    // PID state variables
+    float integral = 0.0f;
+    float previousError = 0.0f;
+    float dt = FAN_SPEED_UPDATE_PERIOD;
+    
+    // For Display
+    char rpmChar[16];
+    char targetRpmChar[16];
+    
+    // Timer
+    Timer switchTimer;
+    char index = 0;
+
+    switchTimer.start();
+    while (boardMode == CLOSED_LOOP_FAN_DEMO) {
+        // Compute new PWM value using PID. Update Every 5 Seconds
+        if (mainLoopTimer.elapsed_time().count() >= FAN_SPEED_UPDATE_PERIOD) {
+            // Measure current speed
+            currentFanSpeed = readFanSpeed();
+
+            // Set the PWM Change Value
+            float pwm = computeFanPID(setpoint[index], currentFanSpeed, integral, previousError, dt);
+
+            fanSpeedPWM += pwm;
+
+            // Clamp the PWM Value
+            if (fanSpeedPWM >= 1) fanSpeedPWM = 1;
+            if (fanSpeedPWM <= 0.05) fanSpeedPWM = 0.05;
+
+            // Apply new PWM value
+            fanPWM.write(fanSpeedPWM);
+            //setFanSpeed(pwm);
+            //printf("Fan PWM: %d\n", (int)(fanSpeedPWM*100));
+
+            sprintf(targetRpmChar, "Target RPM:%d", setpoint[index]);
+
+            // Display the RPM
+            LCDScreen.clear();
+            LCDScreen.writeLine(targetRpmChar, 0);
+
+            sprintf(rpmChar, "RPM:%d", currentFanSpeed);
+            LCDScreen.writeLine(rpmChar, 1);
+
+            // Check the fan stability
+            checkFanStability(setpoint[index]);
+        }
+
+        sevenSegPrint(switchTimer.elapsed_time().count() / SECOND);
+        
+        if (switchTimer.elapsed_time().count() >= SECOND*15) {
+            switchTimer.stop();
+            index++;
+            if (index > 3) index = 0;
+            switchTimer.reset();
+            switchTimer.start();
+        }
+    }
+}
+
 // =========================================================================
 // =============================== MAIN CODE ===============================
 // =========================================================================
@@ -627,6 +698,7 @@ int main()
     fanPWM.write(fanSpeedPWM);
 
     // Start the timer and the main loop
+    LCDScreen.clear();
     mainLoopTimer.start();
     while(1) {
 
@@ -640,6 +712,10 @@ int main()
 
         boardLeds = 0b11;
         closedLoopControlTemp();
+        LCDScreen.clear();
+
+        boardLeds = 0b00;
+        closedLoopFanDemo();
         LCDScreen.clear();
     }
 }
