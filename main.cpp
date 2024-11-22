@@ -96,6 +96,10 @@ const float fanKp = 0.00014;  // Proportional gain
 const float fanKi = 0.0000000000017;  // Integral gain
 const float fanKd = 40; // Derivative gain
 
+const float tempKp = 0.00014;  // Proportional gain
+const float tempKi = 0.0000000000017;  // Integral gain
+const float tempKd = 40; // Derivative gain
+
 // =============================== OTHER ===============================
 const char FAN_SPEED_ARRAY_LENGTH = 10;
 
@@ -299,7 +303,7 @@ char getTemperatureReading()
 
     //Prints out the result of Method 1
 
-    //fprintf(mypcFile1,"Method 1: %d \t Method 2: %d\n\r", tempSensData[0], tempSensData[1]);
+    //printf("Method 1: %d \t Method 2: %d\n\r", tempSensData[0], tempSensData[1]);
     wait_us(10); 
 
     return tempSensData[0];
@@ -383,7 +387,7 @@ int changeFanSpeed()
     return 0;
 }
 
-float computePID(int setpoint, int currentSpeed, float &integral, float &previousError, float dt) {
+float computeFanPID(int setpoint, int currentSpeed, float &integral, float &previousError, float dt) {
     int error = setpoint - currentSpeed;
 
     // Proportional term
@@ -396,6 +400,37 @@ float computePID(int setpoint, int currentSpeed, float &integral, float &previou
     // Derivative term
     float derivative = (error - previousError) / dt;
     float D = fanKd * derivative;
+
+    // Update for next iteration
+    previousError = error;
+
+    // Compute the PID output
+    float output = P + I + D;
+
+    //output = floorf(output*10000) / 100000;
+
+    printf("P: %d\tI: %d\tD: %d\tOutput: %d\n", (int)(P*10000), (int)(I*10000), (int)(D*10000), (int)(output*10000));
+
+    // Clamp output to valid range
+    if (output >= 1) output = 1;
+    else if (output <= -1) output = -1;
+
+    return output;
+}
+
+float computeTempPID(int setpoint, int currentSpeed, float &integral, float &previousError, float dt) {
+    int error = setpoint - currentSpeed;
+
+    // Proportional term
+    float P = tempKp * error;
+
+    // Integral term
+    integral += error * dt;
+    float I = tempKi * integral;
+
+    // Derivative term
+    float derivative = (error - previousError) / dt;
+    float D = tempKd * derivative;
 
     // Update for next iteration
     previousError = error;
@@ -466,6 +501,7 @@ void closedLoopControlFan()
     // PID state variables
     float integral = 0.0f;
     float previousError = 0.0f;
+    float dt = FAN_SPEED_UPDATE_PERIOD;
     
     // For Display
     char rpmChar[16];
@@ -473,7 +509,6 @@ void closedLoopControlFan()
     
     while (boardMode == CLOSED_LOOP_FAN) {
         // Calculate time step
-        float dt = FAN_SPEED_UPDATE_PERIOD;
 
         speedChangeValue = changeFanSpeed();
         speedChangeValue *= 60;
@@ -489,7 +524,7 @@ void closedLoopControlFan()
             currentFanSpeed = readFanSpeed();
 
             // Set the PWM Change Value
-            float pwm = computePID(setpoint, currentFanSpeed, integral, previousError, dt);
+            float pwm = computeFanPID(setpoint, currentFanSpeed, integral, previousError, dt);
 
             fanSpeedPWM += pwm;
 
@@ -520,10 +555,55 @@ void closedLoopControlFan()
 
 void closedLoopControlTemp() // Limit to 32 characters, 16 per row.
 {
+    // Desired Temp (setpoint in Celsius)
+    int setpoint = 21; // Adjust as needed
+    int tempChangeValue = 0;
+
+    // PID state variables
+    float integral = 0.0f;
+    float previousError = 0.0f;
+    float dt = FAN_SPEED_UPDATE_PERIOD;
+    
+    // For Display
+    char rpmChar[16];
+    char targetTempChar[16];
+
     int temperatureData;
     while (boardMode == CLOSED_LOOP_TEMP) {
         // Get the Temperature Data
         temperatureData = getTemperatureReading();
+
+        if (mainLoopTimer.elapsed_time().count() >= FAN_SPEED_UPDATE_PERIOD) {
+            // Measure current speed
+            currentFanSpeed = readFanSpeed();
+
+            // Set the PWM Change Value
+            float pwm = computeTempPID(setpoint, currentFanSpeed, integral, previousError, dt);
+
+            fanSpeedPWM += pwm;
+
+            // Clamp the PWM Value
+            if (fanSpeedPWM >= 1) fanSpeedPWM = 1;
+            if (fanSpeedPWM <= 0.05) fanSpeedPWM = 0.05;
+
+            // Apply new PWM value
+            fanPWM.write(fanSpeedPWM);
+            //setFanSpeed(pwm);
+            //printf("Fan PWM: %d\n", (int)(fanSpeedPWM*100));
+
+            sprintf(targetTempChar, "Target Temp:%d", setpoint);
+
+            // Display the Temp
+            LCDScreen.clear();
+            LCDScreen.writeLine(targetTempChar, 0);
+
+            sprintf(rpmChar, "RPM:%d", currentFanSpeed);
+            LCDScreen.writeLine(rpmChar, 1);
+
+            // Check the fan stability
+            checkFanStability(setpoint);
+        }
+
         sevenSegPrint(temperatureData);
     }
 }
