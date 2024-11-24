@@ -133,13 +133,17 @@ Mode operator++(Mode& mode, int) {
 }
 
 // =============================== PID CONTROL ===============================
-float fanKp = 0.0002;  // Proportional gain
-float fanKi = 0.0;  // Integral gain
-float fanKd = 125; // Derivative gain
+const float fanHighSpeedKp = 0.0002;  // Proportional gain
+const float fanHighSpeedKi = 0.0;  // Integral gain
+const float fanHighSpeedKd = 125; // Derivative gain
 
-float tempKp = -0.01;  // Proportional gain
-float tempKi = 0.0;  // Integral gain
-float tempKd = 0; // Derivative gain
+const float fanLowSpeedKp = 0.00005;  // Proportional gain
+const float fanLowSpeedKi = 0.0;  // Integral gain
+const float fanLowSpeedKd = 50; // Derivative gain
+
+const float tempKp = -0.01;  // Proportional gain
+const float tempKi = 0.0;  // Integral gain
+const float tempKd = 0; // Derivative gain
 
 // Tachometer Reading & Pulse Stretching
 Timer mainLoopTimer;
@@ -398,15 +402,21 @@ float computeFanPID(int setpoint, int currentSpeed, float &integral, float &prev
     int error = setpoint - currentSpeed;
 
     // Proportional term
-    float P = fanKp * error;
+    float P = fanHighSpeedKp * error;
 
     // Integral term
     integral += error * dt;
-    float I = fanKi * integral;
+    float I = fanHighSpeedKi * integral;
 
     // Derivative term
     float derivative = (error - previousError) / dt;
-    float D = fanKd * derivative;
+    float D = fanHighSpeedKd * derivative;
+
+    // Retune the values when the speed is low
+    if (setpoint <= 1000 && currentSpeed <= 1000) {
+        P = fanLowSpeedKp * error;
+        D = fanLowSpeedKd * derivative;
+    }
 
     // Update for next iteration
     previousError = error;
