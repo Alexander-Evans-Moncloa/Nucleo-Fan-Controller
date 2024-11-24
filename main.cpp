@@ -96,17 +96,8 @@ const int MAX_FAN_SPEED = 2700;
 const int MIN_FAN_SPEED = 120;
 const int MID_FAN_SPEED = 1440;
 
-// =============================== PID CONTROL ===============================
-const float fanKp = 0.00014;  // Proportional gain
-const float fanKi = 0.0000000000017;  // Integral gain
-const float fanKd = 40; // Derivative gain
-
-const float tempKp = 0.00014;  // Proportional gain
-const float tempKi = 0.0000000000017;  // Integral gain
-const float tempKd = 40; // Derivative gain
-
 // =============================== OTHER ===============================
-const char FAN_SPEED_ARRAY_LENGTH = 10;
+const char FAN_SPEED_ARRAY_LENGTH = 3;
 
 // ===========================================================================
 // =============================== GLOBAL VARS ===============================
@@ -117,7 +108,7 @@ int fanTACOCounter = 0;
 
 int currentFanSpeed = 0;
 int maxFanRPM = 0;
-int fanSpeedArray[FAN_SPEED_ARRAY_LENGTH] = {0};
+int fanSpeedArray[FAN_SPEED_ARRAY_LENGTH];
 
 int tacoAllowancePeriod = MILLISECOND*5;
 float fanSpeedPWM = 1.0;
@@ -140,6 +131,15 @@ Mode operator++(Mode& mode, int) {
     }
     return mode;
 }
+
+// =============================== PID CONTROL ===============================
+float fanKp = 0.0002;  // Proportional gain
+float fanKi = 0.0;  // Integral gain
+float fanKd = 125; // Derivative gain
+
+float tempKp = -0.01;  // Proportional gain
+float tempKi = 0.0;  // Integral gain
+float tempKd = 0; // Derivative gain
 
 // Tachometer Reading & Pulse Stretching
 Timer mainLoopTimer;
@@ -216,7 +216,7 @@ double round_to(double value, double precision = 1.0)
 
 void updateFanSpeeds(int newValue)
 {
-    for (int i = 1; i < FAN_SPEED_ARRAY_LENGTH; i++) {
+    for (int i = FAN_SPEED_ARRAY_LENGTH-1; i > -1; i--) {
         fanSpeedArray[i] = fanSpeedArray[i-1];
     }
     fanSpeedArray[0] = newValue;
@@ -227,6 +227,7 @@ int calculateAverageFanSpeed()
     int sum = 0;
     for (int i = 0; i < FAN_SPEED_ARRAY_LENGTH; i++) {
         sum += fanSpeedArray[i];
+        printf("%d: %d ", i, fanSpeedArray[i]);
     }
     return sum/FAN_SPEED_ARRAY_LENGTH;
 }
@@ -334,27 +335,27 @@ int readFanSpeed()
         // Calculate Debug Info
         int fanSpeedPercentage = (int)(((float)fanRPM/maxFanRPM)*100);
 
+        int averageSpeed = calculateAverageFanSpeed();
+
         // Print Debug Info
-        printf("Fan PWM: %d\tFan RPM: %d\tFan TACO: %d\t", 
-                (int)(fanSpeedPWM*100),fanRPM, fanTACOCounter);
+        printf("Fan PWM: %d\tCur Fan RPM: %d\tAVG Fan RPM: %d\tFan TACO: %d\t", 
+                (int)(fanSpeedPWM*100),fanRPM, averageSpeed, fanTACOCounter);
         
         fanTACOCounter = 0;
 
         // Reset the Timers
         mainLoopTimer.reset();
         mainLoopTimer.start();
-
-        return fanRPM;
+        
+        return averageSpeed;
     }
     return currentFanSpeed;
 }
 
 void checkFanStability(int target)
 {
-    int averageSpeed = calculateAverageFanSpeed();
-
-    // Check +- 30 RPM range
-    if (averageSpeed < target+30 && averageSpeed > target-30) biDirLeds = 0b01;
+    // Check RPM range
+    if (currentFanSpeed < target*1.1 && currentFanSpeed > target*0.9) biDirLeds = 0b01;
     else biDirLeds = 0b10;
 }
 
@@ -562,7 +563,7 @@ void closedLoopControlFan()
 void closedLoopControlTemp() // Limit to 32 characters, 16 per row.
 {
     // Desired Temp (setpoint in Celsius)
-    int setpoint = 21; // Adjust as needed
+    int setpoint = 25; // Adjust as needed
     int tempChangeValue = 0;
 
     // PID state variables
@@ -584,9 +585,9 @@ void closedLoopControlTemp() // Limit to 32 characters, 16 per row.
             currentFanSpeed = readFanSpeed();
 
             // Set the PWM Change Value
-            float pwm = computeTempPID(setpoint, currentFanSpeed, integral, previousError, dt);
+            float pwm = computeTempPID(setpoint, temperatureData, integral, previousError, dt);
 
-            fanSpeedPWM += pwm;
+            fanSpeedPWM += pwm; // Speed up the fan when the temperature is high
 
             // Clamp the PWM Value
             if (fanSpeedPWM >= 1) fanSpeedPWM = 1;
@@ -700,6 +701,12 @@ int main()
     // Start the timer and the main loop
     LCDScreen.clear();
     mainLoopTimer.start();
+
+    for (int i = 0; i < FAN_SPEED_ARRAY_LENGTH; i++) {
+        fanSpeedArray[i] = MID_FAN_SPEED;
+    }
+
+    // MAIN LOOP
     while(1) {
 
         boardLeds = 0b01;
