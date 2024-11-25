@@ -121,7 +121,7 @@ enum Mode {
     CLOSED_LOOP_TEMP,
     CLOSED_LOOP_FAN_DEMO
 };
-enum Mode boardMode = OPEN_LOOP;
+enum Mode boardMode = CLOSED_LOOP_FAN;
 
 // Override the Post Increment Value so that it loops across the enumerator
 Mode operator++(Mode& mode, int) {
@@ -134,9 +134,9 @@ Mode operator++(Mode& mode, int) {
 }
 
 // =============================== PID CONTROL ===============================
-const float fanHighSpeedKp = 0.0002;  // Proportional gain
-const float fanHighSpeedKi = 0.0;  // Integral gain
-const float fanHighSpeedKd = 125; // Derivative gain
+const float fanHighSpeedKp = 0.0001;  // Proportional gain
+const float fanHighSpeedKi = 0.00000000004;  // Integral gain
+const float fanHighSpeedKd = 95; // Derivative gain
 
 const float fanLowSpeedKp = 0.00005;  // Proportional gain
 const float fanLowSpeedKi = 0.0;  // Integral gain
@@ -421,6 +421,7 @@ float computeFanPID(int setpoint, int currentSpeed, float &integral, float &prev
     // Retune the values when the speed is low
     if (setpoint <= 1000 && currentSpeed <= 1000) {
         P = fanLowSpeedKp * error;
+        I = fanLowSpeedKi * integral;
         D = fanLowSpeedKd * derivative;
     }
 
@@ -538,7 +539,7 @@ void closedLoopControlFan()
 
         // Apply Speed Change
         if      (setpoint + speedChangeValue > 2700) setpoint = 2700;
-        else if (setpoint + speedChangeValue < 120) setpoint = 120;
+        else if (setpoint + speedChangeValue < 60) setpoint = 60;
         else    setpoint += speedChangeValue;
 
         // Compute new PWM value using PID. Update Every 5 Seconds
@@ -547,7 +548,7 @@ void closedLoopControlFan()
             currentFanSpeed = readFanSpeed();
 
             // Set the PWM Change Value
-            float pwm = computeFanPID(setpoint, currentFanSpeed, integral, previousError, dt);
+            float pwm = computeFanPID(setpoint, fanSpeedArray[0], integral, previousError, dt);
 
             fanSpeedPWM += pwm;
 
