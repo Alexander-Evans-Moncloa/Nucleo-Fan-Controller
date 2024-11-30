@@ -99,6 +99,18 @@ const int MID_FAN_SPEED = 1440;
 // =============================== OTHER ===============================
 const char FAN_SPEED_ARRAY_LENGTH = 3;
 
+// RPM = Revs/Min
+// RPM = (tacoCount/2)/time_min
+// RPM = (tacoCount/2)/(time_us/(1,000,000*60))
+// RPM = (tacoCount/2)*(60,000,000/time_us)
+// RPM = (tacoCount*30,000,000)/time_us
+
+// Vary this value
+const char REVOLUTIONS_TO_DO = 2;
+const char REVOLUTIONS_TO_TACO_COUNTER = 3*REVOLUTIONS_TO_DO;
+const int RPM_CALCULATION_PROPORTION = (REVOLUTIONS_TO_TACO_COUNTER-1)*30000000;
+
+
 // ===========================================================================
 // =============================== GLOBAL VARS ===============================
 // ===========================================================================
@@ -109,6 +121,7 @@ int fanTACOCounter = 0;
 int currentFanSpeed = 0;
 int maxFanRPM = 0;
 int fanSpeedArray[FAN_SPEED_ARRAY_LENGTH];
+int fanPulseTimeDelta = 0;
 
 int tacoAllowancePeriod = MILLISECOND*5;
 bool tacoReading = 0;
@@ -121,7 +134,7 @@ enum Mode {
     CLOSED_LOOP_TEMP,
     CLOSED_LOOP_FAN_DEMO
 };
-enum Mode boardMode = CLOSED_LOOP_FAN;
+enum Mode boardMode = OPEN_LOOP;
 
 // Override the Post Increment Value so that it loops across the enumerator
 Mode operator++(Mode& mode, int) {
@@ -147,8 +160,9 @@ const float tempKi = 0.0;  // Integral gain
 const float tempKd = 0; // Derivative gain
 
 // Tachometer Reading & Pulse Stretching
-Timer mainLoopTimer;
-Timer tacoPeriodTimer;
+Timer mainLoopTimer;    // Used for global timings
+Timer tacoPeriodTimer;  // Used to for the filtering
+Timer pulseTimer;       // Used to calculate the RPM
 
 // Set up the Serial USB Ports
 FILE* mypcFile1 = fdopen(&mypc, "r+"); 
@@ -180,6 +194,21 @@ void checkTACOPulseWidth()
     tacoPeriodTimer.stop();
     int tacoPeriod = tacoPeriodTimer.elapsed_time().count();   
     if (tacoPeriod > tacoAllowancePeriod && tacoReading) fanTACOCounter++;
+
+    if (fanTACOCounter % REVOLUTIONS_TO_TACO_COUNTER == 1) {
+        // Reset the timer
+        pulseTimer.reset();
+        pulseTimer.start();
+    }
+    else if (fanTACOCounter >= REVOLUTIONS_TO_TACO_COUNTER) {
+        pulseTimer.stop();
+
+        fanPulseTimeDelta = pulseTimer.elapsed_time().count();
+
+        // Calculate the speed and set the counter to zero
+        currentFanSpeed = (int)(RPM_CALCULATION_PROPORTION/fanPulseTimeDelta);
+        fanTACOCounter = 0;
+    }
     
     tacoPeriodTimer.reset();
 }
@@ -236,6 +265,13 @@ int calculateAverageFanSpeed()
         printf("%d: %d ", i, fanSpeedArray[i]);
     }
     return sum/FAN_SPEED_ARRAY_LENGTH;
+}
+
+void printFanDetails() 
+{
+    printf("\n");
+    printf("Fan PWM: %d\tCur Fan RPM: %d\tFan TACO: %d\tTime Delta: %d\t", 
+                (int)(fanSpeedPWM*100),currentFanSpeed, fanTACOCounter, fanPulseTimeDelta);
 }
 
 // =============================== ANALYTICS ===============================
@@ -479,6 +515,8 @@ void openLoopControl()
 {
     float speedChangeValue = 0.0;
     fanSpeedPWM = 1;
+
+    tacoReading = 1;
     while (boardMode == OPEN_LOOP) {
         // Retrieve the value to change
         speedChangeValue = changeFanSpeed();
@@ -498,8 +536,9 @@ void openLoopControl()
         sevenSegPrint(tempPWM);
 
         if (mainLoopTimer.elapsed_time().count() >= HALF_SECOND) {
+            mainLoopTimer.stop();
             // Update the Fan Speed
-            currentFanSpeed = readFanSpeed();
+            //currentFanSpeed = readFanSpeed();
 
             // Display the RPM
             char currentRpmChar[16];
@@ -511,9 +550,16 @@ void openLoopControl()
             LCDScreen.clear();
             LCDScreen.writeLine(maxRpmChar, 0);
             LCDScreen.writeLine(currentRpmChar, 1);
-            printf("\n"); // Used to print a new line 
+            //printf("\n"); // Used to print a new line 
+
+            printFanDetails();
+
+            // Reset the Timers
+            mainLoopTimer.reset();
+            mainLoopTimer.start();
         }
     }
+    tacoReading = 0;
 }
 
 void closedLoopControlFan()
@@ -531,6 +577,7 @@ void closedLoopControlFan()
     char rpmChar[16];
     char targetRpmChar[16];
     
+    tacoReading = 1;
     while (boardMode == CLOSED_LOOP_FAN) {
         // Calculate time step
 
@@ -544,11 +591,12 @@ void closedLoopControlFan()
 
         // Compute new PWM value using PID. Update Every 5 Seconds
         if (mainLoopTimer.elapsed_time().count() >= FAN_SPEED_UPDATE_PERIOD) {
+            mainLoopTimer.stop();
             // Measure current speed
-            currentFanSpeed = readFanSpeed();
+            //currentFanSpeed = readFanSpeed();
 
             // Set the PWM Change Value
-            float pwm = computeFanPID(setpoint, fanSpeedArray[0], integral, previousError, dt);
+            float pwm = computeFanPID(setpoint, currentFanSpeed, integral, previousError, dt);
 
             fanSpeedPWM += pwm;
 
@@ -572,9 +620,14 @@ void closedLoopControlFan()
 
             // Check the fan stability
             checkFanStability(setpoint);
+
+            // Reset the Timers
+            mainLoopTimer.reset();
+            mainLoopTimer.start();
         }
         sevenSegPrint((int)(fanSpeedPWM*100));
     }
+    tacoReading = 0;
 }
 
 void closedLoopControlTemp() // Limit to 32 characters, 16 per row.
@@ -593,13 +646,16 @@ void closedLoopControlTemp() // Limit to 32 characters, 16 per row.
     char targetTempChar[16];
 
     int temperatureData;
+
+    tacoReading = 1;
     while (boardMode == CLOSED_LOOP_TEMP) {
         // Get the Temperature Data
         temperatureData = getTemperatureReading();
 
         if (mainLoopTimer.elapsed_time().count() >= FAN_SPEED_UPDATE_PERIOD) {
+            mainLoopTimer.stop();
             // Measure current speed
-            currentFanSpeed = readFanSpeed();
+            //currentFanSpeed = readFanSpeed();
 
             // Set the PWM Change Value
             float pwm = computeTempPID(setpoint, temperatureData, integral, previousError, dt);
@@ -626,10 +682,15 @@ void closedLoopControlTemp() // Limit to 32 characters, 16 per row.
 
             // Check the fan stability
             checkFanStability(setpoint);
+
+            // Reset the Timers
+            mainLoopTimer.reset();
+            mainLoopTimer.start();
         }
 
         sevenSegPrint(temperatureData);
     }
+    tacoReading = 0;
 }
 
 // Closed Loop Control for Fan Speed Setpoint changes from min and max every 45 seconds
@@ -651,12 +712,14 @@ void closedLoopFanDemo()
     Timer switchTimer;
     char index = 0;
 
+    tacoReading = 1;
     switchTimer.start();
     while (boardMode == CLOSED_LOOP_FAN_DEMO) {
         // Compute new PWM value using PID. Update Every 5 Seconds
         if (mainLoopTimer.elapsed_time().count() >= FAN_SPEED_UPDATE_PERIOD) {
+            mainLoopTimer.stop();
             // Measure current speed
-            currentFanSpeed = readFanSpeed();
+            //currentFanSpeed = readFanSpeed();
 
             // Set the PWM Change Value
             float pwm = computeFanPID(setpoint[index], currentFanSpeed, integral, previousError, dt);
@@ -683,6 +746,10 @@ void closedLoopFanDemo()
 
             // Check the fan stability
             checkFanStability(setpoint[index]);
+
+            // Reset the Timers
+            mainLoopTimer.reset();
+            mainLoopTimer.start();
         }
 
         sevenSegPrint(switchTimer.elapsed_time().count() / SECOND);
@@ -694,7 +761,9 @@ void closedLoopFanDemo()
             switchTimer.reset();
             switchTimer.start();
         }
+        
     }
+    tacoReading = 0;
 }
 
 // =========================================================================
