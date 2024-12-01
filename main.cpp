@@ -110,6 +110,7 @@ const char REVOLUTIONS_TO_DO = 2;
 const char REVOLUTIONS_TO_TACO_COUNTER = 3*REVOLUTIONS_TO_DO;
 const int RPM_CALCULATION_PROPORTION = (REVOLUTIONS_TO_TACO_COUNTER-1)*30000000;
 
+const float FAN_FILTER_ALPHA = 0.3; // Smoothing Factor
 
 // ===========================================================================
 // =============================== GLOBAL VARS ===============================
@@ -119,6 +120,7 @@ short int rotaryEncoderStage = 0;
 int fanTACOCounter = 0;
 int previousTACOCounter = 0;
 
+int measuredFanSpeed = 0;
 int currentFanSpeed = 0;
 int averageSpeed = 0;
 int maxFanRPM = 0;
@@ -136,7 +138,7 @@ enum Mode {
     CLOSED_LOOP_TEMP,
     CLOSED_LOOP_FAN_DEMO
 };
-enum Mode boardMode = OPEN_LOOP;
+enum Mode boardMode = CLOSED_LOOP_FAN;
 
 // Override the Post Increment Value so that it loops across the enumerator
 Mode operator++(Mode& mode, int) {
@@ -151,7 +153,7 @@ Mode operator++(Mode& mode, int) {
 // =============================== PID CONTROL ===============================
 const float fanHighSpeedKp = 0.0001;  // Proportional gain
 const float fanHighSpeedKi = 0.00000000004;  // Integral gain
-const float fanHighSpeedKd = 95; // Derivative gain
+const float fanHighSpeedKd = 50; // Derivative gain
 
 const float fanLowSpeedKp = 0.00005;  // Proportional gain
 const float fanLowSpeedKi = 0.00000000001;  // Integral gain
@@ -221,7 +223,7 @@ int calculateAverageFanSpeed()
 
 void printFanDetails() 
 {
-    printf("\n");
+    if (boardMode == OPEN_LOOP) printf("\n");
     printf("Fan PWM: %d\tCur Fan RPM: %d\tFan TACO: %d\tTime Delta: %d\t", 
                 (int)(fanSpeedPWM*100),currentFanSpeed, fanTACOCounter, fanPulseTimeDelta);
 }
@@ -229,7 +231,7 @@ void printFanDetails()
 void checkZeroFanSpeed()
 {
     if (pulseTimer.elapsed_time().count() >= SECOND*2+TENTH_SECOND) previousTACOCounter = fanTACOCounter;
-    if ((previousTACOCounter == fanTACOCounter) && (pulseTimer.elapsed_time().count() >= SECOND*2+HALF_SECOND)) {
+    if ((previousTACOCounter == fanTACOCounter) && (pulseTimer.elapsed_time().count() >= SECOND*2+HALF_SECOND+TENTH_SECOND)) {
         pulseTimer.stop();
 
         fanPulseTimeDelta = pulseTimer.elapsed_time().count();
@@ -284,10 +286,15 @@ void checkTACOPulseWidth()
 
         fanPulseTimeDelta = pulseTimer.elapsed_time().count();
 
-        // Calculate the speed and set the counter to zero
-        currentFanSpeed = (int)(RPM_CALCULATION_PROPORTION/fanPulseTimeDelta);
+        // Calculate the speed and filter it
+        measuredFanSpeed = (int)(RPM_CALCULATION_PROPORTION/fanPulseTimeDelta);
+        currentFanSpeed = FAN_FILTER_ALPHA * measuredFanSpeed + (1 - FAN_FILTER_ALPHA) * currentFanSpeed;
+
+        // Update the moving average filter
         updateFanSpeeds(currentFanSpeed);
         averageSpeed = calculateAverageFanSpeed();
+
+        // Reset the timing vars
         fanTACOCounter = 0;
 
         pulseTimer.reset();
