@@ -117,6 +117,7 @@ const int RPM_CALCULATION_PROPORTION = (REVOLUTIONS_TO_TACO_COUNTER-1)*30000000;
 
 short int rotaryEncoderStage = 0;
 int fanTACOCounter = 0;
+int previousTACOCounter = 0;
 
 int currentFanSpeed = 0;
 int averageSpeed = 0;
@@ -225,6 +226,23 @@ void printFanDetails()
                 (int)(fanSpeedPWM*100),currentFanSpeed, fanTACOCounter, fanPulseTimeDelta);
 }
 
+void checkZeroFanSpeed()
+{
+    if (pulseTimer.elapsed_time().count() >= SECOND*2+TENTH_SECOND) previousTACOCounter = fanTACOCounter;
+    if ((previousTACOCounter == fanTACOCounter) && (pulseTimer.elapsed_time().count() >= SECOND*2+HALF_SECOND)) {
+        pulseTimer.stop();
+
+        fanPulseTimeDelta = pulseTimer.elapsed_time().count();
+
+        // Calculate the speed and set the counter to zero
+        currentFanSpeed = 0;
+        updateFanSpeeds(currentFanSpeed);
+        averageSpeed = calculateAverageFanSpeed();
+        fanTACOCounter = 0;
+        //pulseTimer.reset();
+    }
+}
+
 // ==========================================================================
 // =============================== INTERRUPTS ===============================
 // ==========================================================================
@@ -251,7 +269,10 @@ void checkTACOPulseWidth()
 {
     tacoPeriodTimer.stop();
     int tacoPeriod = tacoPeriodTimer.elapsed_time().count();   
-    if (tacoPeriod > tacoAllowancePeriod && tacoReading) fanTACOCounter++;
+    if (tacoPeriod > tacoAllowancePeriod && tacoReading) {
+        previousTACOCounter = fanTACOCounter;
+        fanTACOCounter++;
+    }
 
     if (fanTACOCounter % REVOLUTIONS_TO_TACO_COUNTER == 1) {
         // Reset the timer
@@ -268,6 +289,9 @@ void checkTACOPulseWidth()
         updateFanSpeeds(currentFanSpeed);
         averageSpeed = calculateAverageFanSpeed();
         fanTACOCounter = 0;
+
+        pulseTimer.reset();
+        pulseTimer.start();
     }
     
     tacoPeriodTimer.reset();
@@ -520,7 +544,10 @@ void openLoopControl()
     fanSpeedPWM = 1;
 
     tacoReading = 1;
+
+    // CONTROL LOOP START
     while (boardMode == OPEN_LOOP) {
+        checkZeroFanSpeed();
         // Retrieve the value to change
         speedChangeValue = changeFanSpeed();
         speedChangeValue /= 100;
@@ -581,7 +608,10 @@ void closedLoopControlFan()
     char targetRpmChar[16];
     
     tacoReading = 1;
+
+    // CONTROL LOOP START
     while (boardMode == CLOSED_LOOP_FAN) {
+        checkZeroFanSpeed();
         // Calculate time step
 
         speedChangeValue = changeFanSpeed();
@@ -652,7 +682,10 @@ void closedLoopControlTemp() // Limit to 32 characters, 16 per row.
     int temperatureData;
 
     tacoReading = 1;
+
+    // CONTROL LOOP START
     while (boardMode == CLOSED_LOOP_TEMP) {
+        checkZeroFanSpeed();
         // Get the Temperature Data
         temperatureData = getTemperatureReading();
 
@@ -718,7 +751,10 @@ void closedLoopFanDemo()
 
     tacoReading = 1;
     switchTimer.start();
+
+    // CONTROL LOOP START
     while (boardMode == CLOSED_LOOP_FAN_DEMO) {
+        checkZeroFanSpeed();
         // Compute new PWM value using PID. Update Every 5 Seconds
         if (mainLoopTimer.elapsed_time().count() >= FAN_SPEED_UPDATE_PERIOD) {
             mainLoopTimer.stop();
