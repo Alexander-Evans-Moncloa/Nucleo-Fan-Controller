@@ -107,7 +107,7 @@ const char REVOLUTIONS_TO_DO = 2;
 const char REVOLUTIONS_TO_TACO_COUNTER = (2*REVOLUTIONS_TO_DO)+1;
 const int RPM_CALCULATION_PROPORTION = (REVOLUTIONS_TO_DO)*MINUTE;
 
-const char POS_EDGE_ARRAY_LENGTH = REVOLUTIONS_TO_DO*2;
+const char POS_EDGE_ARRAY_LENGTH = 7;
 const char POS_NEG_PULSES = REVOLUTIONS_TO_DO*4;
 
 const float FAN_FILTER_ALPHA = 0.3; // Smoothing Factor
@@ -122,13 +122,13 @@ int fanTACOCounter = 0;
 int previousTACOCounter = 0;
 int fanPulseDelta = 0;
 int posEdgeTime = 0;
-int posEdgeTimes[POS_EDGE_ARRAY_LENGTH];
+int fanPulseDeltas[POS_EDGE_ARRAY_LENGTH];
 
 volatile bool isPosGlitch = false;
 volatile bool isNegGlitch = false;
 volatile bool isMeasuring = false;
 volatile bool isRiseInterrupt = false;
-volatile bool isFallInterrupt = false;
+volatile bool isFallInterrupt = true;
 
 int posPulseDelta = 0;
 int negPulseDelta = 0;
@@ -223,24 +223,24 @@ double round_to(double value, double precision = 1.0)
 void updatePosTimes(int newValue)
 {
     for (int i = POS_EDGE_ARRAY_LENGTH-1; i > -1; i--) {
-        posEdgeTimes[i] = posEdgeTimes[i-1];
+        fanPulseDeltas[i] = fanPulseDeltas[i-1];
     }
-    posEdgeTimes[0] = newValue;
+    fanPulseDeltas[0] = newValue;
 }
 
 int calculateAveragePosTime()
 {
     int sum = 0;
     for (int i = 0; i < POS_EDGE_ARRAY_LENGTH; i++) {
-        sum += posEdgeTimes[i];
+        sum += fanPulseDeltas[i];
     }
     return sum/POS_EDGE_ARRAY_LENGTH;
 }
 
-void clearPosTimes()
+void fillPosTimes()
 {
     for (int i = 0; i < POS_EDGE_ARRAY_LENGTH; i++) {
-        posEdgeTimes[i] = 0;
+        fanPulseDeltas[i] = 2147483647;
     }
 }
 
@@ -253,11 +253,11 @@ void printFanDetails()
 
 void checkZeroFanSpeed()
 {
-    if (pulseTimer.elapsed_time().count() >= SECOND*2+TENTH_SECOND) previousTACOCounter = fanTACOCounter;
-    if ((previousTACOCounter == fanTACOCounter) && (pulseTimer.elapsed_time().count() >= SECOND*2+HALF_SECOND+TENTH_SECOND)) {
+    if ((pulseTimer.elapsed_time().count() >= HALF_SECOND)) {
         pulseTimer.stop();
 
         fanPulseDelta = pulseTimer.elapsed_time().count();
+        fillPosTimes();
 
         // Calculate the speed and set the counter to zero
         currentFanSpeed = 0;
@@ -272,6 +272,11 @@ void updateTacoAllowance()
 {
     tacoAllowancePeriod = 10250 - 9800*fanSpeedPWM; // Derived From Excel sheet
     if (tacoAllowancePeriod <= MILLISECOND) tacoAllowancePeriod = MILLISECOND;
+}
+
+void updateFanSpeed() 
+{
+    currentFanSpeed = HALF_MINUTE/calculateAveragePosTime();
 }
 
 // ==========================================================================
@@ -290,54 +295,29 @@ void changeMode()
 
 void incrementTACO()
 {
-    if (isFallInterrupt) return;
-    isRiseInterrupt = 1;
-    negPulseTimer.stop();
-    testTimer.reset();
-    testTimer.start();
-    
-    negPulseDelta = negPulseTimer.elapsed_time().count();  
+    //if (!firstRun) firstRun = true;
+    if (!isFallInterrupt) return;
+    isFallInterrupt = false;
 
     posPulseTimer.reset();
     posPulseTimer.start();
 
-    if ((negPulseDelta < (750)) && (!isPosGlitch)) {
-        isNegGlitch = true;
-        fanPulseGlitchDelta = fanPulseDelta;
-
-        isRiseInterrupt = 0;
-        testTimer.stop();
-        testPos = testTimer.elapsed_time().count();
-        return;
-    }
-
-    isPosGlitch = false;
-
-    isRiseInterrupt = 0;
-    testTimer.stop();
-    testPos = testTimer.elapsed_time().count();
+    isRiseInterrupt = true;
 }
 
 void checkTACOPulseWidth()
 {
-    if (isRiseInterrupt) return;
-    testTimer.reset();
-    testTimer.start();
-    isFallInterrupt = 1;
+    //if (!firstRun) return;
+    if (!isRiseInterrupt) return;
+    isRiseInterrupt = false;
+
     posPulseTimer.stop();
 
     posPulseDelta = posPulseTimer.elapsed_time().count();   
 
-    negPulseTimer.reset();
-    negPulseTimer.start();
-
     // Check for positive pulse glitches
-    if ((posPulseDelta < tacoAllowancePeriod) && (!isNegGlitch)) {
-        isPosGlitch = true;
-        isFallInterrupt = 0;
-        //posPulseTimer.start();
-        testTimer.stop();
-        testNeg = testTimer.elapsed_time().count();
+    if ((posPulseDelta < tacoAllowancePeriod)) {
+        isFallInterrupt = true;
         return;
     }
 
@@ -345,36 +325,13 @@ void checkTACOPulseWidth()
 
     fanPulseDelta = pulseTimer.elapsed_time().count();
 
-    //previousTACOCounter = fanTACOCounter;
-    //fanTACOCounter++;
-    //updatePosTimes(posPulseDelta);
-
-    negPulseTimer.reset();
-    negPulseTimer.start();
-
-    if (!isNegGlitch) {
-        currentFanSpeed = HALF_MINUTE/fanPulseDelta;
-        pulseTimer.reset();
-        pulseTimer.start();
-
-        testTimer.stop();
-        testNeg = testTimer.elapsed_time().count();
-        isFallInterrupt = 0;
-        return;
-    }
-
-    // When a glitch occurs add the previously stored pulse to the current pulse.
-    fanPulseDelta += fanPulseGlitchDelta;
-    fanPulseGlitchDelta = 0;
-    currentFanSpeed = HALF_MINUTE/fanPulseDelta;
-    isNegGlitch = false;
-
-    isFallInterrupt = 0;
-    testTimer.stop();
-    testNeg = testTimer.elapsed_time().count();
-
+    updatePosTimes(fanPulseDelta);
     pulseTimer.reset();
     pulseTimer.start();
+
+    // When a glitch occurs add the previously stored pulse to the current pulse.
+    //updateFanSpeed();
+    isFallInterrupt = true;
 }
 
 // ===============================================================================
@@ -611,6 +568,7 @@ void openLoopControl()
         // Display PWM
         sevenSegPrint(tempPWM);
 
+        updateFanSpeed();
         if (mainLoopTimer.elapsed_time().count() >= FAN_SPEED_UPDATE_PERIOD) {
             mainLoopTimer.stop();
             // Update the Fan Speed
@@ -674,6 +632,7 @@ void closedLoopControlFan()
         pwmFeedForward = 0.0000001*(setpoint*setpoint) + 0.00002*(setpoint) + 0.049;
 
         // Compute new PWM value using PID. Update Every 5 Seconds
+        updateFanSpeed();
         if (mainLoopTimer.elapsed_time().count() >= PID_UPDATE_PERIOD) {
             mainLoopTimer.stop();
             // Measure current speed
@@ -741,6 +700,7 @@ void closedLoopControlTemp() // Limit to 32 characters, 16 per row.
         // Get the Temperature Data
         temperatureData = getTemperatureReading();
 
+        updateFanSpeed();
         if (mainLoopTimer.elapsed_time().count() >= PID_UPDATE_PERIOD) {
             mainLoopTimer.stop();
             // Measure current speed
@@ -809,6 +769,8 @@ void closedLoopFanDemo()
         updateTacoAllowance();
         checkZeroFanSpeed();
         // Compute new PWM value using PID. Update Every 5 Seconds
+
+        updateFanSpeed();
         if (mainLoopTimer.elapsed_time().count() >= PID_UPDATE_PERIOD) {
             mainLoopTimer.stop();
             // Measure current speed
