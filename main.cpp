@@ -85,7 +85,7 @@ const int MINUTE         = 60000000;
 
 // =============================== FAN DETAILS ===============================
 const int FAN_PWM_PERIOD = MILLISECOND*10;
-const int FAN_SPEED_UPDATE_PERIOD = SECOND; // Prev: SECOND
+const int FAN_SPEED_UPDATE_PERIOD = HALF_SECOND; // Prev: SECOND
 const int PID_UPDATE_PERIOD = QUARTER_SECOND;
 
 const int MIN_TACO_PERIOD = MILLISECOND*20; // Calculation based off 3000RPM
@@ -231,9 +231,9 @@ void updatePosTimes(int newValue)
 int calculateAveragePosTime()
 {
     int sum = 0;
-    for (int i = 0; i < POS_EDGE_ARRAY_LENGTH; i++) {
-        sum += fanPulseDeltas[i];
-    }
+
+    // Speeds lower than 30% work good with 7 Length
+    for (int i = 0; i < POS_EDGE_ARRAY_LENGTH; i++) sum += fanPulseDeltas[i];
     return sum/POS_EDGE_ARRAY_LENGTH;
 }
 
@@ -576,11 +576,10 @@ void openLoopControl()
 
             // Display the RPM
             char currentRpmChar[16];
-            if (!useCalc) sprintf(currentRpmChar, "RPM: %d", currentFanSpeed);
-            else sprintf(currentRpmChar, "RPM: %d", calculatedSpeed);
+            sprintf(currentRpmChar, "RPM: %d", currentFanSpeed);
 
             char maxRpmChar[16];
-            sprintf(maxRpmChar, "Delta: %d", fanPulseDelta);
+            sprintf(maxRpmChar, "Delta: %d", calculateAveragePosTime());
 
             LCDScreen.clear();
             LCDScreen.writeLine(maxRpmChar, 0);
