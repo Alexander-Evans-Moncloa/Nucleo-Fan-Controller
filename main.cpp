@@ -142,15 +142,14 @@ float fanSpeedPWM = 1.0;
 enum Mode {
     OPEN_LOOP,
     CLOSED_LOOP_FAN,
-    CLOSED_LOOP_TEMP,
-    CLOSED_LOOP_FAN_DEMO
+    CLOSED_LOOP_TEMP
 };
 
-enum Mode boardMode = CLOSED_LOOP_FAN;
+enum Mode boardMode = OPEN_LOOP;
 
 // Override the Post Increment Value so that it loops across the enumerator
 Mode operator++(Mode& mode, int) {
-    if (mode == Mode::CLOSED_LOOP_FAN_DEMO) {
+    if (mode == Mode::CLOSED_LOOP_TEMP) {
         mode = Mode::OPEN_LOOP; // Wrap around to the beginning if needed
     } else {
         mode = static_cast<Mode>(static_cast<int>(mode) + 1);
@@ -234,6 +233,25 @@ void updateTacoAllowance()
 void updateFanSpeed() 
 {
     currentFanSpeed = HALF_MINUTE/calculateAveragePosTime();
+}
+
+void enterModeMessage()
+{
+    LCDScreen.clear();
+
+    switch (boardMode) {
+        case OPEN_LOOP:
+            LCDScreen.write("OPEN LOOP MODE");
+            break;
+        case CLOSED_LOOP_FAN:
+            LCDScreen.write("CLOSED FAN MODE");
+            break;
+        case CLOSED_LOOP_TEMP:
+            LCDScreen.write("CLOSED TEMP MODE");
+            break;
+    }
+
+    wait_us(SECOND);
 }
 
 // ==========================================================================
@@ -695,85 +713,6 @@ void closedLoopControlTemp() // Limit to 32 characters, 16 per row.
     tacoReading = 0;
 }
 
-// Closed Loop Control for Fan Speed Setpoint changes from min and max every 45 seconds
-void closedLoopFanDemo()
-{
-    // Desired speed (setpoint in RPM)
-    int setpoint[4] = {MAX_FAN_SPEED, MID_FAN_SPEED, MIN_FAN_SPEED, MID_FAN_SPEED};
-
-    // PID state variables
-    float integral = 0.0f;
-    float previousError = 0.0f;
-    float dt = PID_UPDATE_PERIOD;
-    
-    // For Display
-    char rpmChar[16];
-    char targetRpmChar[16];
-    
-    // Timer
-    Timer switchTimer;
-    char index = 0;
-
-    tacoReading = 1;
-    switchTimer.start();
-
-    // CONTROL LOOP START
-    while (boardMode == CLOSED_LOOP_FAN_DEMO) {
-        updateTacoAllowance();
-        checkZeroFanSpeed();
-        // Compute new PWM value using PID. Update Every 5 Seconds
-
-        updateFanSpeed();
-        if (mainLoopTimer.elapsed_time().count() >= PID_UPDATE_PERIOD) {
-            mainLoopTimer.stop();
-            // Measure current speed
-            //currentFanSpeed = readFanSpeed();
-
-            // Set the PWM Change Value
-            float pwm = computeFanPID(setpoint[index], currentFanSpeed, integral, previousError, dt);
-
-            fanSpeedPWM += pwm;
-
-            // Clamp the PWM Value
-            if (fanSpeedPWM >= 1) fanSpeedPWM = 1;
-            if (fanSpeedPWM <= 0.05) fanSpeedPWM = 0.05;
-
-            // Apply new PWM value
-            fanPWM.write(fanSpeedPWM);
-            //setFanSpeed(pwm);
-            //printf("Fan PWM: %d\n", (int)(fanSpeedPWM*100));
-
-            sprintf(targetRpmChar, "Target RPM:%d", setpoint[index]);
-
-            // Display the RPM
-            LCDScreen.clear();
-            LCDScreen.writeLine(targetRpmChar, 0);
-
-            sprintf(rpmChar, "RPM:%d", currentFanSpeed);
-            LCDScreen.writeLine(rpmChar, 1);
-
-            // Check the fan stability
-            checkFanStability(setpoint[index]);
-
-            // Reset the Timers
-            mainLoopTimer.reset();
-            mainLoopTimer.start();
-        }
-
-        sevenSegPrint(switchTimer.elapsed_time().count() / SECOND);
-        
-        if (switchTimer.elapsed_time().count() >= SECOND*15) {
-            switchTimer.stop();
-            index++;
-            if (index > 3) index = 0;
-            switchTimer.reset();
-            switchTimer.start();
-        }
-        
-    }
-    tacoReading = 0;
-}
-
 // =========================================================================
 // =============================== MAIN CODE ===============================
 // =========================================================================
@@ -804,19 +743,18 @@ int main()
     while(1) {
 
         boardLeds = 0b01;
+        enterModeMessage();
         openLoopControl();
         LCDScreen.clear();
 
         boardLeds = 0b10;
+        enterModeMessage();
         closedLoopControlFan();
         LCDScreen.clear();
 
         boardLeds = 0b11;
+        enterModeMessage();
         closedLoopControlTemp();
-        LCDScreen.clear();
-
-        boardLeds = 0b00;
-        closedLoopFanDemo();
         LCDScreen.clear();
     }
 }
