@@ -47,7 +47,8 @@ void LCD::init(){
 
 void LCD::writeTime(){
     _e = 1;
-    ThisThread::sleep_for(1ms);
+    wait_us(1000);
+    //ThisThread::sleep_for(1ms);
     _e = 0;
 }
 
