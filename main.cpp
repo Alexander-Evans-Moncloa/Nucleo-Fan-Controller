@@ -5,6 +5,7 @@
 
 #include "mbed.h"
 #include "LCD_ST7066U.h"
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -79,15 +80,12 @@ const int TENTH_SECOND   = 100000;
 const int QUARTER_SECOND = 250000;
 const int HALF_SECOND    = 500000;
 const int SECOND         = 1000000;
+const int HALF_MINUTE    = 30000000;
 const int MINUTE         = 60000000;
 
-// =============================== MILLISECOND ===============================
-#define BLINKING_RATE     500ms
-#define MULTIPLEX_BLINKING_RATE 5ms // 5ms before
-
 // =============================== FAN DETAILS ===============================
-const int FAN_PWM_PERIOD = MILLISECOND*10; // Prev Val: MILLISECOND*10
-const int FAN_SPEED_UPDATE_PERIOD = SECOND;
+const int FAN_PWM_PERIOD = MILLISECOND*10;
+const int FAN_SPEED_UPDATE_PERIOD = SECOND; // Prev: SECOND
 const int PID_UPDATE_PERIOD = QUARTER_SECOND;
 
 const int MIN_TACO_PERIOD = MILLISECOND*20; // Calculation based off 3000RPM
@@ -122,14 +120,26 @@ short int rotaryEncoderStage = 0;
 
 int fanTACOCounter = 0;
 int previousTACOCounter = 0;
-int fanPulseTimeDelta = 0;
+int fanPulseDelta = 0;
 int posEdgeTime = 0;
 int posEdgeTimes[POS_EDGE_ARRAY_LENGTH];
 
+volatile bool isPosGlitch = false;
+volatile bool isNegGlitch = false;
+volatile bool isMeasuring = false;
+volatile bool isRiseInterrupt = false;
+volatile bool isFallInterrupt = false;
+
+int posPulseDelta = 0;
+int negPulseDelta = 0;
+int fanPulseGlitchDelta = 0;
+
+int testPos = 0;
+int testNeg = 0;
+Timer testTimer;
+
 int measuredFanSpeed = 0;
 int currentFanSpeed = 0;
-int averageSpeed = 0;
-int maxFanRPM = 0;
 
 int tacoAllowancePeriod = MILLISECOND*5;
 bool tacoReading = 0;
@@ -169,7 +179,8 @@ const float tempKd = 0; // Derivative gain
 
 // Tachometer Reading
 Timer mainLoopTimer;    // Used for global timings
-Timer tacoPeriodTimer;  // Used to for the filtering
+Timer posPulseTimer;    // Used for the filtering
+Timer negPulseTimer;    // Used for the filtering
 Timer pulseTimer;       // Used to calculate the RPM
 
 volatile bool isProcessing = false;
@@ -236,8 +247,8 @@ void clearPosTimes()
 void printFanDetails() 
 {
     if (boardMode == OPEN_LOOP) printf("\n");
-    printf("Fan PWM: %d\tCur Fan RPM: %d\tFan TACO: %d\tPrev TACO: %d\tTime Delta: %d\tPos Edge: %d", 
-        (int)(fanSpeedPWM*100),currentFanSpeed, fanTACOCounter, previousTACOCounter, fanPulseTimeDelta, posEdgeTime);
+    printf("Fan PWM: %d\tCur Fan RPM: %d\tFan TACO: %d\tPrev TACO: %d\tTime Delta: %d\tPos Edge: %d\tNeg Edge: %d", 
+        (int)(fanSpeedPWM*100),currentFanSpeed, fanTACOCounter, previousTACOCounter, fanPulseDelta, testPos, testNeg);
 }
 
 void checkZeroFanSpeed()
@@ -246,15 +257,21 @@ void checkZeroFanSpeed()
     if ((previousTACOCounter == fanTACOCounter) && (pulseTimer.elapsed_time().count() >= SECOND*2+HALF_SECOND+TENTH_SECOND)) {
         pulseTimer.stop();
 
-        fanPulseTimeDelta = pulseTimer.elapsed_time().count();
+        fanPulseDelta = pulseTimer.elapsed_time().count();
 
         // Calculate the speed and set the counter to zero
         currentFanSpeed = 0;
-        //updatePosTimes(currentFanSpeed);
-        //averageSpeed = calculateAveragePosTime();
+        previousTACOCounter = 0;
         fanTACOCounter = 0;
-        //pulseTimer.reset();
+        pulseTimer.reset();
+        pulseTimer.start();
     }
+}
+
+void updateTacoAllowance() 
+{
+    tacoAllowancePeriod = 10250 - 9800*fanSpeedPWM; // Derived From Excel sheet
+    if (tacoAllowancePeriod <= MILLISECOND) tacoAllowancePeriod = MILLISECOND;
 }
 
 // ==========================================================================
@@ -273,59 +290,91 @@ void changeMode()
 
 void incrementTACO()
 {
-    if (isProcessing) return;  // Avoid re-entering
-    isProcessing = true;
-    fanTACO.disable_irq();  // Disable interrupt temporarily
+    if (isFallInterrupt) return;
+    isRiseInterrupt = 1;
+    negPulseTimer.stop();
+    testTimer.reset();
+    testTimer.start();
+    
+    negPulseDelta = negPulseTimer.elapsed_time().count();  
 
-    // Start reading the Taco period
-    tacoAllowancePeriod = 10250 - 9900*fanSpeedPWM; // Derived From Excel sheet
-    if (tacoAllowancePeriod <= MILLISECOND) tacoAllowancePeriod = MILLISECOND;
+    posPulseTimer.reset();
+    posPulseTimer.start();
 
-    tacoPeriodTimer.reset();
-    tacoPeriodTimer.start();
+    if ((negPulseDelta < (750)) && (!isPosGlitch)) {
+        isNegGlitch = true;
+        fanPulseGlitchDelta = fanPulseDelta;
 
-    fanTACO.enable_irq();  // Re-enable the interrupt
-    isProcessing = false;
+        isRiseInterrupt = 0;
+        testTimer.stop();
+        testPos = testTimer.elapsed_time().count();
+        return;
+    }
+
+    isPosGlitch = false;
+
+    isRiseInterrupt = 0;
+    testTimer.stop();
+    testPos = testTimer.elapsed_time().count();
 }
 
 void checkTACOPulseWidth()
 {
-    if (isProcessing) return;  // Avoid re-entering
-    isProcessing = true;
-    fanTACO.disable_irq();  // Disable interrupt temporarily
-    
-    tacoPeriodTimer.stop();
-    int tacoPeriod = tacoPeriodTimer.elapsed_time().count();   
-    if (tacoPeriod > tacoAllowancePeriod && tacoReading) {
-        previousTACOCounter = fanTACOCounter;
-        fanTACOCounter++;
-        updatePosTimes(tacoPeriod);
+    if (isRiseInterrupt) return;
+    testTimer.reset();
+    testTimer.start();
+    isFallInterrupt = 1;
+    posPulseTimer.stop();
+
+    posPulseDelta = posPulseTimer.elapsed_time().count();   
+
+    negPulseTimer.reset();
+    negPulseTimer.start();
+
+    // Check for positive pulse glitches
+    if ((posPulseDelta < tacoAllowancePeriod) && (!isNegGlitch)) {
+        isPosGlitch = true;
+        isFallInterrupt = 0;
+        //posPulseTimer.start();
+        testTimer.stop();
+        testNeg = testTimer.elapsed_time().count();
+        return;
     }
 
-    if (fanTACOCounter >= REVOLUTIONS_TO_TACO_COUNTER) {
-        pulseTimer.stop();
+    pulseTimer.stop();
 
-        fanPulseTimeDelta = pulseTimer.elapsed_time().count();
-        posEdgeTime = calculateAveragePosTime();
-        clearPosTimes();
+    fanPulseDelta = pulseTimer.elapsed_time().count();
 
-        // Calculate the speed
-        currentFanSpeed = (int)(RPM_CALCULATION_PROPORTION/fanPulseTimeDelta);
+    //previousTACOCounter = fanTACOCounter;
+    //fanTACOCounter++;
+    //updatePosTimes(posPulseDelta);
 
-        // Reset the timing vars
-        fanTACOCounter = 0;
+    negPulseTimer.reset();
+    negPulseTimer.start();
 
-        //pulseTimer.reset();
-        //pulseTimer.start();
-    }
-    else if ((fanTACOCounter == 1) && (previousTACOCounter != fanTACOCounter)) {
-        // Reset the timer
+    if (!isNegGlitch) {
+        currentFanSpeed = HALF_MINUTE/fanPulseDelta;
         pulseTimer.reset();
         pulseTimer.start();
+
+        testTimer.stop();
+        testNeg = testTimer.elapsed_time().count();
+        isFallInterrupt = 0;
+        return;
     }
 
-    fanTACO.enable_irq();  // Re-enable the interrupt
-    isProcessing = false;
+    // When a glitch occurs add the previously stored pulse to the current pulse.
+    fanPulseDelta += fanPulseGlitchDelta;
+    fanPulseGlitchDelta = 0;
+    currentFanSpeed = HALF_MINUTE/fanPulseDelta;
+    isNegGlitch = false;
+
+    isFallInterrupt = 0;
+    testTimer.stop();
+    testNeg = testTimer.elapsed_time().count();
+
+    pulseTimer.reset();
+    pulseTimer.start();
 }
 
 // ===============================================================================
@@ -379,13 +428,11 @@ void sevenSegPrint(int valueToDisplay)
     int tens = valueToDisplay / 10;
     int units = valueToDisplay % 10;
 
-    //ThisThread::sleep_for(MULTIPLEX_BLINKING_RATE);
     wait_us(MILLISECOND*5);
 
     sevenSegPWR = 0b01;
     sevenSegPrintDigit(tens);
     
-    //ThisThread::sleep_for(MULTIPLEX_BLINKING_RATE);
     wait_us(MILLISECOND*5);
 
     sevenSegPWR = 0b10;
@@ -533,13 +580,19 @@ float computeTempPID(int setpoint, int currentSpeed, float &integral, float &pre
 
 void openLoopControl()
 {
+    int calculatedSpeed = 0;
     float speedChangeValue = 0.0;
+    bool useCalc = false;
     fanSpeedPWM = 0.5;
 
     tacoReading = 1;
 
     // CONTROL LOOP START
     while (boardMode == OPEN_LOOP) {
+        updateTacoAllowance();
+
+        calculatedSpeed = 2493.5*pow(fanSpeedPWM,3)-6304.2*pow(fanSpeedPWM,2) + 6610.3*fanSpeedPWM - 175.11;
+        //useCalc = ((currentFanSpeed < calculatedSpeed-50) || (currentFanSpeed > calculatedSpeed+50));
         checkZeroFanSpeed();
         // Retrieve the value to change
         speedChangeValue = changeFanSpeed();
@@ -565,10 +618,11 @@ void openLoopControl()
 
             // Display the RPM
             char currentRpmChar[16];
-            sprintf(currentRpmChar, "RPM: %d", currentFanSpeed);
+            if (!useCalc) sprintf(currentRpmChar, "RPM: %d", currentFanSpeed);
+            else sprintf(currentRpmChar, "RPM: %d", calculatedSpeed);
 
             char maxRpmChar[16];
-            sprintf(maxRpmChar, "Delta: %d", fanPulseTimeDelta);
+            sprintf(maxRpmChar, "Delta: %d", fanPulseDelta);
 
             LCDScreen.clear();
             LCDScreen.writeLine(maxRpmChar, 0);
@@ -605,6 +659,7 @@ void closedLoopControlFan()
 
     // CONTROL LOOP START
     while (boardMode == CLOSED_LOOP_FAN) {
+        updateTacoAllowance();
         checkZeroFanSpeed();
         // Calculate time step
 
@@ -681,6 +736,7 @@ void closedLoopControlTemp() // Limit to 32 characters, 16 per row.
 
     // CONTROL LOOP START
     while (boardMode == CLOSED_LOOP_TEMP) {
+        updateTacoAllowance();
         checkZeroFanSpeed();
         // Get the Temperature Data
         temperatureData = getTemperatureReading();
@@ -750,6 +806,7 @@ void closedLoopFanDemo()
 
     // CONTROL LOOP START
     while (boardMode == CLOSED_LOOP_FAN_DEMO) {
+        updateTacoAllowance();
         checkZeroFanSpeed();
         // Compute new PWM value using PID. Update Every 5 Seconds
         if (mainLoopTimer.elapsed_time().count() >= PID_UPDATE_PERIOD) {
@@ -814,8 +871,10 @@ int main()
     button.mode(PullUp);
     button.rise(&changeMode);
 
+    //fanTACO.mode(PullUp);
     fanTACO.rise(&incrementTACO);
     fanTACO.fall(&checkTACOPulseWidth);
+    NVIC_SetPriority(EXTI0_1_IRQn, 1);
 
     fanPWM.period_us(FAN_PWM_PERIOD);
     fanPWM.write(fanSpeedPWM);
