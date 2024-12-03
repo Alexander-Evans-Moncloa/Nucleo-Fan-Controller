@@ -159,13 +159,13 @@ Mode operator++(Mode& mode, int) {
 }
 
 // =============================== PID CONTROL ===============================
-const float fanHighSpeedKp = 0.0002;  // Proportional gain
-const float fanHighSpeedKi = 0.00000000001;  // Integral gain
-const float fanHighSpeedKd = 15; // Derivative gain
+const float fanHighSpeedKp = 0.0001;  // Proportional gain
+const float fanHighSpeedKi = 0.00000000004;  // Integral gain
+const float fanHighSpeedKd = 100; // Derivative gain
 
-const float fanLowSpeedKp  = 0.000075;  // Proportional gain
-const float fanLowSpeedKi  = 0.000000000005;  // Integral gain
-const float fanLowSpeedKd  = 20; // Derivative gain
+const float fanLowSpeedKp  = 0.00006;  // Proportional gain
+const float fanLowSpeedKi  = 0.000000000003;  // Integral gain
+const float fanLowSpeedKd  = 30; // Derivative gain
 
 const float tempKp = -0.01;  // Proportional gain
 const float tempKi = 0.0;  // Integral gain
@@ -495,7 +495,6 @@ void openLoopControl()
 {
     int calculatedSpeed = 0;
     float speedChangeValue = 0.0;
-    bool useCalc = false;
     fanSpeedPWM = 0.5;
 
     tacoReading = 1;
@@ -505,7 +504,6 @@ void openLoopControl()
         updateTacoAllowance();
 
         calculatedSpeed = 2493.5*pow(fanSpeedPWM,3)-6304.2*pow(fanSpeedPWM,2) + 6610.3*fanSpeedPWM - 175.11;
-        //useCalc = ((currentFanSpeed < calculatedSpeed-50) || (currentFanSpeed > calculatedSpeed+50));
         checkZeroFanSpeed();
         // Retrieve the value to change
         speedChangeValue = changeFanSpeed();
