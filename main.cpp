@@ -573,6 +573,7 @@ void closedLoopControlFan()
     // Desired speed (setpoint in RPM)
     int setpoint = 1500; // Adjust as needed
     int speedChangeValue = 0;
+    float speedDelta = 0;
 
     // PID state variables
     float integral = 0.0f;
@@ -636,11 +637,14 @@ void closedLoopControlFan()
             // Check the fan stability
             checkFanStability(setpoint);
 
+            speedDelta = abs((float)(setpoint - currentFanSpeed)/setpoint);
+
             // Reset the Timers
             mainLoopTimer.reset();
             mainLoopTimer.start();
         }
-        sevenSegPrint((int)(fanSpeedPWM*100));
+        
+        sevenSegPrint((int)(speedDelta*100));
     }
     tacoReading = 0;
 }
