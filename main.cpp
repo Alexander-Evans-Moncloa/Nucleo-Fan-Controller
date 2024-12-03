@@ -64,7 +64,7 @@ LCD LCDScreen(PA_5,  // RS
 
 
 // Define the Serial USB Output
-BufferedSerial mypc(USBTX, USBRX);
+//BufferedSerial mypc(USBTX, USBRX);
 
 // =========================================================================
 // =============================== CONSTANTS ===============================
@@ -85,7 +85,7 @@ const int MINUTE         = 60000000;
 
 // =============================== FAN DETAILS ===============================
 const int FAN_PWM_PERIOD = MILLISECOND*10;
-const int FAN_SPEED_UPDATE_PERIOD = SECOND; // Prev: SECOND
+const int FAN_SPEED_UPDATE_PERIOD = HALF_SECOND; // Prev: SECOND
 const int PID_UPDATE_PERIOD = QUARTER_SECOND;
 
 const int MIN_TACO_PERIOD = MILLISECOND*20; // Calculation based off 3000RPM
@@ -103,14 +103,10 @@ const int MID_FAN_SPEED = 1440;
 // RPM = (tacoCount/2)*(60,000,000/time_us)
 // RPM = (tacoCount*30,000,000)/time_us
 // Vary this value
-const char REVOLUTIONS_TO_DO = 2;
-const char REVOLUTIONS_TO_TACO_COUNTER = (2*REVOLUTIONS_TO_DO)+1;
-const int RPM_CALCULATION_PROPORTION = (REVOLUTIONS_TO_DO)*MINUTE;
+//const char REVOLUTIONS_TO_DO = 2;
+//const int RPM_CALCULATION_PROPORTION = (REVOLUTIONS_TO_DO)*MINUTE;
 
-const char POS_EDGE_ARRAY_LENGTH = 7;
-const char POS_NEG_PULSES = REVOLUTIONS_TO_DO*4;
-
-const float FAN_FILTER_ALPHA = 0.3; // Smoothing Factor
+const char POS_EDGE_ARRAY_LENGTH = 15; // 7: Not Good for >50% but good for <30%
 
 // ===========================================================================
 // =============================== GLOBAL VARS ===============================
@@ -118,10 +114,7 @@ const float FAN_FILTER_ALPHA = 0.3; // Smoothing Factor
 
 short int rotaryEncoderStage = 0;
 
-int fanTACOCounter = 0;
-int previousTACOCounter = 0;
 int fanPulseDelta = 0;
-int posEdgeTime = 0;
 int fanPulseDeltas[POS_EDGE_ARRAY_LENGTH];
 
 volatile bool isPosGlitch = false;
@@ -149,14 +142,14 @@ float fanSpeedPWM = 1.0;
 enum Mode {
     OPEN_LOOP,
     CLOSED_LOOP_FAN,
-    CLOSED_LOOP_TEMP,
-    CLOSED_LOOP_FAN_DEMO
+    CLOSED_LOOP_TEMP
 };
+
 enum Mode boardMode = OPEN_LOOP;
 
 // Override the Post Increment Value so that it loops across the enumerator
 Mode operator++(Mode& mode, int) {
-    if (mode == Mode::CLOSED_LOOP_FAN_DEMO) {
+    if (mode == Mode::CLOSED_LOOP_TEMP) {
         mode = Mode::OPEN_LOOP; // Wrap around to the beginning if needed
     } else {
         mode = static_cast<Mode>(static_cast<int>(mode) + 1);
@@ -167,11 +160,11 @@ Mode operator++(Mode& mode, int) {
 // =============================== PID CONTROL ===============================
 const float fanHighSpeedKp = 0.0001;  // Proportional gain
 const float fanHighSpeedKi = 0.00000000004;  // Integral gain
-const float fanHighSpeedKd = 50; // Derivative gain
+const float fanHighSpeedKd = 100; // Derivative gain
 
-const float fanLowSpeedKp  = 0.000075;  // Proportional gain
-const float fanLowSpeedKi  = 0.000000000005;  // Integral gain
-const float fanLowSpeedKd  = 20; // Derivative gain
+const float fanLowSpeedKp  = 0.00006;  // Proportional gain
+const float fanLowSpeedKi  = 0.000000000003;  // Integral gain
+const float fanLowSpeedKd  = 30; // Derivative gain
 
 const float tempKp = -0.01;  // Proportional gain
 const float tempKi = 0.0;  // Integral gain
@@ -180,46 +173,12 @@ const float tempKd = 0; // Derivative gain
 // Tachometer Reading
 Timer mainLoopTimer;    // Used for global timings
 Timer posPulseTimer;    // Used for the filtering
-Timer negPulseTimer;    // Used for the filtering
 Timer pulseTimer;       // Used to calculate the RPM
 
-volatile bool isProcessing = false;
-
 // Set up the Serial USB Ports
-FILE* mypcFile1 = fdopen(&mypc, "r+"); 
+//FILE* mypcFile1 = fdopen(&mypc, "r+"); 
 
 // =============================== MISC FUNCTIONS ===============================
-void rotaryEncoderDirectionLED()
-{ // Check OneNote for details
-    // Clockwise
-    if ((rotaryEncoderStage == 0) && ((!rotaryA) && (rotaryB))) rotaryEncoderStage++;
-    if ((rotaryEncoderStage == 1) && ((!rotaryA) && (!rotaryB))) rotaryEncoderStage++;
-    if ((rotaryEncoderStage == 2) && ((rotaryA) && (!rotaryB))) rotaryEncoderStage++;
-
-    if ((rotaryEncoderStage == 3) && ((rotaryA) && (rotaryB))) {
-        rotaryEncoderStage = 0;
-        biDirLeds = 0b01;
-    }
-
-    // Counter-Clockwise
-    if ((rotaryEncoderStage == 0) && ((rotaryA) && (!rotaryB))) rotaryEncoderStage--;
-    if ((rotaryEncoderStage == -1) && ((!rotaryA) && (!rotaryB))) rotaryEncoderStage--;
-    if ((rotaryEncoderStage == -2) && ((!rotaryA) && (rotaryB))) rotaryEncoderStage--;
-
-    if ((rotaryEncoderStage == -3) && ((rotaryA) && (rotaryB))) {
-        rotaryEncoderStage = 0;
-        biDirLeds = 0b10;
-    }
-
-    // For cases where the encoder is spun too quickly
-    if ((rotaryEncoderStage != 0) && ((rotaryA) && (rotaryB))) rotaryEncoderStage = 0;
-}
-
-double round_to(double value, double precision = 1.0)
-{
-    return std::round(value / precision) * precision;
-}
-
 void updatePosTimes(int newValue)
 {
     for (int i = POS_EDGE_ARRAY_LENGTH-1; i > -1; i--) {
@@ -231,38 +190,35 @@ void updatePosTimes(int newValue)
 int calculateAveragePosTime()
 {
     int sum = 0;
-    for (int i = 0; i < POS_EDGE_ARRAY_LENGTH; i++) {
-        sum += fanPulseDeltas[i];
-    }
+
+    // Speeds lower than 30% work good with 7 Length
+    for (int i = 0; i < POS_EDGE_ARRAY_LENGTH; i++) sum += fanPulseDeltas[i];
     return sum/POS_EDGE_ARRAY_LENGTH;
 }
 
 void fillPosTimes()
 {
     for (int i = 0; i < POS_EDGE_ARRAY_LENGTH; i++) {
-        fanPulseDeltas[i] = 2147483647;
+        fanPulseDeltas[i] = 90000000;
     }
 }
 
 void printFanDetails() 
 {
     if (boardMode == OPEN_LOOP) printf("\n");
-    printf("Fan PWM: %d\tCur Fan RPM: %d\tFan TACO: %d\tPrev TACO: %d\tTime Delta: %d\tPos Edge: %d\tNeg Edge: %d", 
-        (int)(fanSpeedPWM*100),currentFanSpeed, fanTACOCounter, previousTACOCounter, fanPulseDelta, testPos, testNeg);
+    printf("Fan PWM: %d\tCur Fan RPM: %d\tTime Delta: %d\t", 
+        (int)(fanSpeedPWM*100),currentFanSpeed, fanPulseDelta);
 }
 
 void checkZeroFanSpeed()
 {
-    if ((pulseTimer.elapsed_time().count() >= HALF_SECOND)) {
+    if ((pulseTimer.elapsed_time().count() >= HALF_SECOND+TENTH_SECOND)) {
         pulseTimer.stop();
 
         fanPulseDelta = pulseTimer.elapsed_time().count();
         fillPosTimes();
 
-        // Calculate the speed and set the counter to zero
-        currentFanSpeed = 0;
-        previousTACOCounter = 0;
-        fanTACOCounter = 0;
+        //currentFanSpeed = 0;
         pulseTimer.reset();
         pulseTimer.start();
     }
@@ -279,6 +235,25 @@ void updateFanSpeed()
     currentFanSpeed = HALF_MINUTE/calculateAveragePosTime();
 }
 
+void enterModeMessage()
+{
+    LCDScreen.clear();
+
+    switch (boardMode) {
+        case OPEN_LOOP:
+            LCDScreen.write("OPEN LOOP MODE");
+            break;
+        case CLOSED_LOOP_FAN:
+            LCDScreen.write("CLOSED FAN MODE");
+            break;
+        case CLOSED_LOOP_TEMP:
+            LCDScreen.write("CLOSED TEMP MODE");
+            break;
+    }
+
+    wait_us(SECOND);
+}
+
 // ==========================================================================
 // =============================== INTERRUPTS ===============================
 // ==========================================================================
@@ -290,7 +265,6 @@ void changeMode()
 
     mainLoopTimer.reset();
     mainLoopTimer.start();
-    fanTACOCounter = 0;
 } 
 
 void incrementTACO()
@@ -539,7 +513,6 @@ void openLoopControl()
 {
     int calculatedSpeed = 0;
     float speedChangeValue = 0.0;
-    bool useCalc = false;
     fanSpeedPWM = 0.5;
 
     tacoReading = 1;
@@ -549,7 +522,6 @@ void openLoopControl()
         updateTacoAllowance();
 
         calculatedSpeed = 2493.5*pow(fanSpeedPWM,3)-6304.2*pow(fanSpeedPWM,2) + 6610.3*fanSpeedPWM - 175.11;
-        //useCalc = ((currentFanSpeed < calculatedSpeed-50) || (currentFanSpeed > calculatedSpeed+50));
         checkZeroFanSpeed();
         // Retrieve the value to change
         speedChangeValue = changeFanSpeed();
@@ -576,11 +548,10 @@ void openLoopControl()
 
             // Display the RPM
             char currentRpmChar[16];
-            if (!useCalc) sprintf(currentRpmChar, "RPM: %d", currentFanSpeed);
-            else sprintf(currentRpmChar, "RPM: %d", calculatedSpeed);
+            sprintf(currentRpmChar, "RPM: %d", currentFanSpeed);
 
             char maxRpmChar[16];
-            sprintf(maxRpmChar, "Delta: %d", fanPulseDelta);
+            sprintf(maxRpmChar, "Delta: %d", calculateAveragePosTime());
 
             LCDScreen.clear();
             LCDScreen.writeLine(maxRpmChar, 0);
@@ -607,7 +578,7 @@ void closedLoopControlFan()
     float integral = 0.0f;
     float previousError = 0.0f;
     float dt = PID_UPDATE_PERIOD;
-    float pwmFeedForward = 0.04;
+    //float pwmFeedForward = 0.04;
     
     // For Display
     char rpmChar[16];
@@ -629,7 +600,7 @@ void closedLoopControlFan()
         else if (setpoint + speedChangeValue < MIN_FAN_SPEED) setpoint = MIN_FAN_SPEED;
         else    setpoint += speedChangeValue;
 
-        pwmFeedForward = 0.0000001*(setpoint*setpoint) + 0.00002*(setpoint) + 0.049;
+        //pwmFeedForward = 0.0000001*(setpoint*setpoint) + 0.00002*(setpoint) + 0.049;
 
         // Compute new PWM value using PID. Update Every 5 Seconds
         updateFanSpeed();
@@ -642,7 +613,7 @@ void closedLoopControlFan()
             // Set the PWM Change Value
             float pwm = computeFanPID(setpoint, currentFanSpeed, integral, previousError, dt);
 
-            fanSpeedPWM = pwmFeedForward + pwm;
+            fanSpeedPWM += pwm;
 
             // Clamp the PWM Value
             if (fanSpeedPWM >= 1) fanSpeedPWM = 1;
@@ -742,85 +713,6 @@ void closedLoopControlTemp() // Limit to 32 characters, 16 per row.
     tacoReading = 0;
 }
 
-// Closed Loop Control for Fan Speed Setpoint changes from min and max every 45 seconds
-void closedLoopFanDemo()
-{
-    // Desired speed (setpoint in RPM)
-    int setpoint[4] = {MAX_FAN_SPEED, MID_FAN_SPEED, MIN_FAN_SPEED, MID_FAN_SPEED};
-
-    // PID state variables
-    float integral = 0.0f;
-    float previousError = 0.0f;
-    float dt = PID_UPDATE_PERIOD;
-    
-    // For Display
-    char rpmChar[16];
-    char targetRpmChar[16];
-    
-    // Timer
-    Timer switchTimer;
-    char index = 0;
-
-    tacoReading = 1;
-    switchTimer.start();
-
-    // CONTROL LOOP START
-    while (boardMode == CLOSED_LOOP_FAN_DEMO) {
-        updateTacoAllowance();
-        checkZeroFanSpeed();
-        // Compute new PWM value using PID. Update Every 5 Seconds
-
-        updateFanSpeed();
-        if (mainLoopTimer.elapsed_time().count() >= PID_UPDATE_PERIOD) {
-            mainLoopTimer.stop();
-            // Measure current speed
-            //currentFanSpeed = readFanSpeed();
-
-            // Set the PWM Change Value
-            float pwm = computeFanPID(setpoint[index], currentFanSpeed, integral, previousError, dt);
-
-            fanSpeedPWM += pwm;
-
-            // Clamp the PWM Value
-            if (fanSpeedPWM >= 1) fanSpeedPWM = 1;
-            if (fanSpeedPWM <= 0.05) fanSpeedPWM = 0.05;
-
-            // Apply new PWM value
-            fanPWM.write(fanSpeedPWM);
-            //setFanSpeed(pwm);
-            //printf("Fan PWM: %d\n", (int)(fanSpeedPWM*100));
-
-            sprintf(targetRpmChar, "Target RPM:%d", setpoint[index]);
-
-            // Display the RPM
-            LCDScreen.clear();
-            LCDScreen.writeLine(targetRpmChar, 0);
-
-            sprintf(rpmChar, "RPM:%d", currentFanSpeed);
-            LCDScreen.writeLine(rpmChar, 1);
-
-            // Check the fan stability
-            checkFanStability(setpoint[index]);
-
-            // Reset the Timers
-            mainLoopTimer.reset();
-            mainLoopTimer.start();
-        }
-
-        sevenSegPrint(switchTimer.elapsed_time().count() / SECOND);
-        
-        if (switchTimer.elapsed_time().count() >= SECOND*15) {
-            switchTimer.stop();
-            index++;
-            if (index > 3) index = 0;
-            switchTimer.reset();
-            switchTimer.start();
-        }
-        
-    }
-    tacoReading = 0;
-}
-
 // =========================================================================
 // =============================== MAIN CODE ===============================
 // =========================================================================
@@ -845,23 +737,24 @@ int main()
     LCDScreen.clear();
     mainLoopTimer.start();
 
+    fillPosTimes();
+
     // MAIN LOOP
     while(1) {
 
         boardLeds = 0b01;
+        enterModeMessage();
         openLoopControl();
         LCDScreen.clear();
 
         boardLeds = 0b10;
+        enterModeMessage();
         closedLoopControlFan();
         LCDScreen.clear();
 
         boardLeds = 0b11;
+        enterModeMessage();
         closedLoopControlTemp();
-        LCDScreen.clear();
-
-        boardLeds = 0b00;
-        closedLoopFanDemo();
         LCDScreen.clear();
     }
 }
