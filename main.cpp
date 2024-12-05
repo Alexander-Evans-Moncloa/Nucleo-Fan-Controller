@@ -166,7 +166,7 @@ const float fanLowSpeedKp  = 0.00006;  // Proportional gain
 const float fanLowSpeedKi  = 0.000000000003;  // Integral gain
 const float fanLowSpeedKd  = 30; // Derivative gain
 
-const float tempKp = -0.01;  // Proportional gain
+const float tempKp = -0.1;  // Proportional gain
 const float tempKi = 0.0;  // Integral gain
 const float tempKd = 0; // Derivative gain
 
@@ -235,8 +235,10 @@ void updateFanSpeed()
     currentFanSpeed = HALF_MINUTE/calculateAveragePosTime();
 }
 
+volatile bool isChangingMode = false;
 void enterModeMessage()
 {
+    isChangingMode = true;
     LCDScreen.clear();
 
     switch (boardMode) {
@@ -252,6 +254,7 @@ void enterModeMessage()
     }
 
     wait_us(SECOND);
+    isChangingMode = false;
 }
 
 // ==========================================================================
@@ -260,6 +263,7 @@ void enterModeMessage()
 
 void changeMode() 
 { // Changes the mode of the board and reset timer
+    if (isChangingMode) return;
     mainLoopTimer.stop();
     boardMode++;
 
@@ -309,7 +313,7 @@ void checkTACOPulseWidth()
 }
 
 // ===============================================================================
-// =============================== OTHER FUNCTIONS ===============================
+// =============================== MAIN FUNCTIONS ================================
 // ===============================================================================
 
 // =============================== ANALYTICS ===============================
@@ -684,7 +688,7 @@ void closedLoopControlTemp() // Limit to 32 characters, 16 per row.
             // Set the PWM Change Value
             float pwm = computeTempPID(setpoint, temperatureData, integral, previousError, dt);
 
-            fanSpeedPWM += pwm; // Speed up the fan when the temperature is high
+            fanSpeedPWM = pwm; // Speed up the fan when the temperature is high
 
             // Clamp the PWM Value
             if (fanSpeedPWM >= 1) fanSpeedPWM = 1;
