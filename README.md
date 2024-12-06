@@ -31,11 +31,13 @@ The fan controller board provides robust control over fan operation, supporting 
   - Closed Loop Control with Temperature Measurements  
 
 - **User Interfaces**:  
-  - **Inputs**: Rotary encoder (extension board), button  
+  - **Inputs**:
+    - Rotary encoder (Extension board)
+    - Button  
   - **Visual Outputs**:  
     - 2-digit 7-segment display (HDSP-521E)  
     - LCD screen (ST7066U)  
-    - LEDs (board and extension board)  
+    - LEDs (Board and Extension board)  
     - Temperature sensor (TC74)  
 
 - **Real-Time Feedback** for fan control and monitoring.  
@@ -78,11 +80,11 @@ The fan controller board provides robust control over fan operation, supporting 
 
 - **LCD Screen**:  
   - Displays:  
-    - **Second Line**: Current fan speed in all modes.  
     - **First Line**:  
       - Time delta for speed readings in Open Loop Mode.  
       - Target RPM in Closed Loop Fan Speed Mode.  
-      - Target temperature in Closed Loop Temperature Mode.  
+      - Target temperature in Closed Loop Temperature Mode.
+    - **Second Line**: Current fan speed in all modes.  
 
 - **LEDs**: Indicate various states and operational statuses.
 - **Multi-Colour LED**: Indicates the stability of the fan speed.  
@@ -176,6 +178,41 @@ The fan controller board provides robust control over fan operation, supporting 
 | GND           | 3          | GND        |
 | SCLK          | 4          | PB8        |
 | VDD           | 5          | U5V        |
+
+---
+
+## Contact Us
+
+If you have any questions, suggestions, or feedback, feel free to reach out to us:
+
+- Email: [cjg75@bath.ac.uk](mailto:cjg75@bath.ac.uk)
+- GitHub Issues: [GitHub Issues Page]([https://github.com/your-repository/issues](https://github.com/Ac3CJ/Nucleo-Fan-Controller/issues))
+
+---
+
+## Authors
+
+This project was developed by:
+
+- **Conrad Gacay** - [Ac3CJ]([https://github.com/author1](https://github.com/Ac3CJ))
+
+Feel free to reach out for any collaboration or questions!
+
+---
+
+## FAQ
+
+### Q: The system doesn't start in Open Loop Mode.
+A: Check the wiring connections and ensure the power supply is correct. The system should automatically start in Open Loop Mode upon power-up.
+
+### Q: How do I adjust the fan speed in Closed Loop Fan Speed Mode?
+A: Use the rotary encoder to set the target RPM in Closed Loop Fan Speed Mode.
+
+### Q: I cannot see anything on the LCD Screen.
+A: Change the resistance on the 460Ohm potentiometer and check for connections.
+
+### Q: The fan plugged in but is not spinning.
+A: Ensure that the power supply is turned on and that there is a valid connection into the banana sockets on the extension board.
 
 ---
 
