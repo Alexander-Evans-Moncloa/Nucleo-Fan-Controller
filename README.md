@@ -123,16 +123,13 @@ The fan controller board provides robust control over fan operation, supporting 
 
 ### Pin Connections Overview
 
-<div style="display: flex; justify-content: space-between;">
-  <div style="width: 20%;">
-
 #### LCD Pin Connections
 
 | **Pin Value** | **Device Pin** | **Board Pin**       |
 |---------------|----------------|---------------------|
 | VSS           | 1              | GND                 |
 | VDD           | 2              | U5V                 |
-| VO            | 3              | 460 Ohm + GND       |
+| VO            | 3              | 460 Ohm Potentiometer+ GND       |
 | RS            | 4              | PA5                 |
 | R/W           | 5              | AGND                |
 | E             | 6              | PA6                 |
@@ -146,10 +143,6 @@ The fan controller board provides robust control over fan operation, supporting 
 | DB7           | 14             | PB5                 |
 | A/VEE         | 15             | N/C                 |
 | K             | 16             | N/C                 |
-
-  </div>
-
-  <div style="width: 20%;">
 
 #### 7-Segment Display Pin Connections
 
@@ -172,10 +165,6 @@ The fan controller board provides robust control over fan operation, supporting 
 | g             | 7          | PC5        |
 | Digit No. 2   | 13         | PC6        |
 
-  </div>
-
-  <div style="width: 20%;">
-
 #### Temperature Sensor Pin Connections
 
 > **Note**: A pull-up resistor is required on both the **SDA** and **SCLK** lines.
@@ -187,10 +176,6 @@ The fan controller board provides robust control over fan operation, supporting 
 | GND           | 3          | GND        |
 | SCLK          | 4          | PB8        |
 | VDD           | 5          | U5V        |
-
-  </div>
-
-</div>
 
 ---
 
