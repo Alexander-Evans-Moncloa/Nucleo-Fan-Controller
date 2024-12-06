@@ -121,7 +121,13 @@ The fan controller board provides robust control over fan operation, supporting 
    - Use the rotary encoder for duty cycle or target RPM adjustments (depending on the mode).  
 4. Monitor the **7-segment display** and **LCD screen** for real-time feedback.  
 
-### LCD Pin Connections
+### Pin Connections Overview
+
+<div style="display: flex; justify-content: space-between;">
+
+<div style="width: 32%;">
+
+#### LCD Pin Connections
 
 | **Pin Value** | **Device Pin** | **Board Pin**       |
 |---------------|----------------|---------------------|
@@ -142,7 +148,11 @@ The fan controller board provides robust control over fan operation, supporting 
 | A/VEE         | 15             | N/C                 |
 | K             | 16             | N/C                 |
 
-### 7-Segment Display Pin Connections
+</div>
+
+<div style="width: 32%;">
+
+#### 7-Segment Display Pin Connections
 
 | **Pin Value** | **D. Pin** | **B. Pin** |
 |---------------|------------|------------|
@@ -163,7 +173,11 @@ The fan controller board provides robust control over fan operation, supporting 
 | g             | 7          | PC5        |
 | Digit No. 2   | 13         | PC6        |
 
-### Temperature Sensor Pin Connections
+</div>
+
+<div style="width: 32%;">
+
+#### Temperature Sensor Pin Connections
 
 > **Note**: A pull-up resistor is required on both the **SDA** and **SCLK** lines.
 
@@ -174,6 +188,10 @@ The fan controller board provides robust control over fan operation, supporting 
 | GND           | 3          | GND        |
 | SCLK          | 4          | PB8        |
 | VDD           | 5          | U5V        |
+
+</div>
+
+</div>
 
 ---
 
