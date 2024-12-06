@@ -96,6 +96,26 @@ const int MAX_FAN_SPEED = 2600;
 const int MIN_FAN_SPEED = 60;
 const int MID_FAN_SPEED = 1440;
 
+// =============================== PID CONTROL ===============================
+const float fanHighSpeedKp     = 0.0001;  // Proportional gain
+const float fanHighSpeedKi     = 0.00000000008;  // Integral gain
+const float fanHighSpeedKd     = 80; // Derivative gain
+
+const float fanLowSpeedKp      = 0.00006;  // Proportional gain
+const float fanLowSpeedKi      = 0.00000000001;  // Integral gain
+const float fanLowSpeedKd      = 5; // Derivative gain
+
+const float fanUltraLowSpeedKp = 0.00002;
+const float fanUltraLowSpeedKi = 0.0000000000007;
+const float fanUltraLowSpeedKd = 7;
+
+const float tempKp = -0.1;  // Proportional gain
+const float tempKi = 0.0;  // Integral gain
+const float tempKd = 0; // Derivative gain
+
+const int LOW_SPEED_THRESHOLD = 1000;
+const int ULTRA_LOW_SPEED_THRESHOLD = 600;
+
 // =============================== OTHER ===============================
 // RPM = Revs/Min
 // RPM = (tacoCount/2)/time_min
@@ -156,19 +176,6 @@ Mode operator++(Mode& mode, int) {
     }
     return mode;
 }
-
-// =============================== PID CONTROL ===============================
-const float fanHighSpeedKp = 0.0001;  // Proportional gain
-const float fanHighSpeedKi = 0.00000000004;  // Integral gain
-const float fanHighSpeedKd = 100; // Derivative gain
-
-const float fanLowSpeedKp  = 0.00006;  // Proportional gain
-const float fanLowSpeedKi  = 0.000000000003;  // Integral gain
-const float fanLowSpeedKd  = 30; // Derivative gain
-
-const float tempKp = -0.1;  // Proportional gain
-const float tempKi = 0.0;  // Integral gain
-const float tempKd = 0; // Derivative gain
 
 // Tachometer Reading
 Timer mainLoopTimer;    // Used for global timings
@@ -442,6 +449,7 @@ int changeFanSpeed()
     return 0;
 }
 
+volatile bool isUltraLowSpeed = false;
 float computeFanPID(int setpoint, int currentSpeed, float &integral, float &previousError, float dt) {
     int error = setpoint - currentSpeed;
 
@@ -457,11 +465,35 @@ float computeFanPID(int setpoint, int currentSpeed, float &integral, float &prev
     float D = fanHighSpeedKd * derivative;
 
     // Retune the values when the speed is low
-    if (setpoint <= 1000 && currentSpeed <= 1000) {
+    if (setpoint <= ULTRA_LOW_SPEED_THRESHOLD && currentSpeed <= ULTRA_LOW_SPEED_THRESHOLD) {
+        if (!isUltraLowSpeed) {isUltraLowSpeed = true; integral = 0;}
+        P = fanUltraLowSpeedKp * error;
+        I = fanUltraLowSpeedKi * integral;
+        D = fanUltraLowSpeedKd * derivative;
+
+        if (I >= 0.001) integral = 0.001/fanUltraLowSpeedKi;
+        if (I <= -0.001) integral = -(0.001/fanUltraLowSpeedKi);
+        I = fanUltraLowSpeedKi * integral;
+    }
+    else if (setpoint <= LOW_SPEED_THRESHOLD && currentSpeed <= LOW_SPEED_THRESHOLD) {
+        isUltraLowSpeed = false;
         P = fanLowSpeedKp * error;
         I = fanLowSpeedKi * integral;
         D = fanLowSpeedKd * derivative;
+
+        if (I >= 0.02) integral = 0.02/fanLowSpeedKi;
+        if (I <= -0.02) integral = -(0.02/fanLowSpeedKi);
+        I = fanLowSpeedKi * integral;
     }
+    else {
+        // Clamp the integral so that it doesn't get saturated
+        isUltraLowSpeed = false;
+        if (I >= 0.02) integral = 0.02/fanHighSpeedKi;
+        if (I <= -0.02) integral = -(0.02/fanHighSpeedKi);
+        I = fanHighSpeedKi * integral;
+    }
+
+    
 
     // Update for next iteration
     previousError = error;
