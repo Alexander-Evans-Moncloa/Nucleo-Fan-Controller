@@ -84,7 +84,8 @@ The fan controller board provides robust control over fan operation, supporting 
       - Target RPM in Closed Loop Fan Speed Mode.  
       - Target temperature in Closed Loop Temperature Mode.  
 
-- **LEDs**: Indicate various states and operational statuses.  
+- **LEDs**: Indicate various states and operational statuses.
+- **Multi-Colour LED**: Indicates the stability of the fan speed.  
 
 ---
 
@@ -101,6 +102,14 @@ The fan controller board provides robust control over fan operation, supporting 
 ## Setup  
 
 **Fill in this section with setup instructions, including hardware connections, software installation, and required libraries.**  
+- Connect the extension board to the left set of header pins.
+- Connect all IOs as labelled below.
+- Setup the circuit as shown below
+- Using a USB Mini B, upload the supported .bin to the development board to program it.
+- Connect a 12V supply to the power connectors on the extension board
+- Connect the fan to the board.
+- Power the development board and fan.
+- The program should start automatically in the Open Loop Mode. 
 
 ---
 
