@@ -103,7 +103,6 @@ The fan controller board provides robust control over fan operation, supporting 
 
 ## Setup  
 
-**Fill in this section with setup instructions, including hardware connections, software installation, and required libraries.**  
 - Connect the extension board to the left set of header pins.
 - Connect all IOs as labelled below.
 - Setup the circuit as shown below
@@ -194,7 +193,7 @@ If you have any questions, suggestions, or feedback, feel free to reach out to u
 
 This project was developed by:
 
-- **Conrad Gacay** - [Ac3CJ]([https://github.com/author1](https://github.com/Ac3CJ))
+- **Conrad Gacay** - [Ac3CJ](https://github.com/Ac3CJ)
 
 Feel free to reach out for any collaboration or questions!
 
