@@ -549,7 +549,7 @@ void openLoopControl()
 {
     int calculatedSpeed = 0;
     float speedChangeValue = 0.0;
-    fanSpeedPWM = 0.5;
+    fanSpeedPWM = 1.0;
 
     tacoReading = 1;
 
