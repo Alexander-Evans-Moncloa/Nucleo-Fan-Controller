@@ -1,6 +1,11 @@
 <p align="center"><img src="https://cdn-icons-png.flaticon.com/512/6475/6475231.png" alt="FAN Logo" width="100"></p>
 <h1 align="center"> Fan Controller Board </h1>
 
+![Contributors](https://img.shields.io/github/contributors/Ac3CJ/Nucleo-Fan-Controller)
+![GitHub stars](https://img.shields.io/github/stars/Ac3CJ/Nucleo-Fan-Controller?style=social)
+![GitHub forks](https://img.shields.io/github/forks/Ac3CJ/Nucleo-Fan-Controller?style=social)
+![Issues](https://github.com/Ac3CJ/Nucleo-Fan-Controller/issues)
+![LinkedIn](https://www.linkedin.com/in/conradgacay/)
 ![Build Status](https://img.shields.io/badge/build-passing-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
