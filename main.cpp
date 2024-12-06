@@ -165,7 +165,7 @@ enum Mode {
     CLOSED_LOOP_TEMP
 };
 
-enum Mode boardMode = OPEN_LOOP;
+enum Mode boardMode = CLOSED_LOOP_FAN;
 
 // Override the Post Increment Value so that it loops across the enumerator
 Mode operator++(Mode& mode, int) {

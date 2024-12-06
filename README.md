@@ -1,73 +1,121 @@
-![](./resources/official_armmbed_example_badge.png)
-# Blinky Mbed OS example
+# Fan Controller Board
 
-The example project is part of the [Arm Mbed OS Official Examples](https://os.mbed.com/code/) and is the [getting started example for Mbed OS](https://os.mbed.com/docs/mbed-os/latest/quick-start/index.html). It contains an application that repeatedly blinks an LED on supported [Mbed boards](https://os.mbed.com/platforms/).
+This project features a fan controller board designed using the NUCLEO-F070RB development board. The board offers three modes of operation, allowing users to control and monitor the fan's behavior through various user interfaces.
 
-You can build the project with all supported [Mbed OS build tools](https://os.mbed.com/docs/mbed-os/latest/tools/index.html). However, this example project specifically refers to the command-line interface tools, [Arm Mbed CLI 1](https://github.com/ARMmbed/mbed-cli#installing-mbed-cli) and [Mbed CLI 2](https://github.com/ARMmbed/mbed-tools#installation).
+---
 
-(Note: To see a rendered example you can import into the Arm Online Compiler, please see our [import quick start](https://os.mbed.com/docs/mbed-os/latest/quick-start/online-with-the-online-compiler.html#importing-the-code).)
+## Table of Contents
 
-## Mbed OS build tools
+- [Introduction](#introduction)  
+- [Features](#features)  
+- [Modes of Operation](#modes-of-operation)  
+- [Interfaces](#interfaces)  
+- [Display Functionality](#display-functionality)  
+- [Setup](#setup)  
+- [Usage](#usage)  
+- [License](#license)  
 
-### Mbed CLI 2
-Starting with version 6.5, Mbed OS uses Mbed CLI 2. It uses Ninja as a build system, and CMake to generate the build environment and manage the build process in a compiler-independent manner. If you are working with Mbed OS version prior to 6.5 then check the section [Mbed CLI 1](#mbed-cli-1).
-1. [Install Mbed CLI 2](https://os.mbed.com/docs/mbed-os/latest/build-tools/install-or-upgrade.html).
-1. From the command-line, import the example: `mbed-tools import mbed-os-example-blinky`
-1. Change the current directory to where the project was imported.
+---
 
-### Mbed CLI 1
-1. [Install Mbed CLI 1](https://os.mbed.com/docs/mbed-os/latest/quick-start/offline-with-mbed-cli.html).
-1. From the command-line, import the example: `mbed import mbed-os-example-blinky`
-1. Change the current directory to where the project was imported.
+## Introduction  
 
-## Application functionality
+The fan controller board provides robust control over fan operation, supporting open loop and closed loop control schemes. It integrates intuitive interfaces for input and output, making it a versatile tool for a range of applications.  
 
-The `main()` function is the single thread in the application. It toggles the state of a digital output connected to an LED on the board.
+---
 
-**Note**: This example requires a target with RTOS support, i.e. one with `rtos` declared in `supported_application_profiles` in `targets/targets.json` in [mbed-os](https://github.com/ARMmbed/mbed-os). For non-RTOS targets (usually with small memory sizes), please use [mbed-os-example-blinky-baremetal](https://github.com/ARMmbed/mbed-os-example-blinky-baremetal) instead.
+## Features  
 
-## Building and running
+- **Modes of Operation**:  
+  - Open Loop Control  
+  - Closed Loop Control with User-Variable Fan Speed  
+  - Closed Loop Control with Temperature Measurements  
 
-1. Connect a USB cable between the USB port on the board and the host computer.
-1. Run the following command to build the example project and program the microcontroller flash memory:
+- **User Interfaces**:  
+  - **Inputs**: Rotary encoder (extension board), button  
+  - **Visual Outputs**:  
+    - 2-digit 7-segment display (HDSP-521E)  
+    - LCD screen (ST7066U)  
+    - LEDs (board and extension board)  
+    - Temperature sensor (TC74)  
 
-    * Mbed CLI 2
+- **Real-Time Feedback** for fan control and monitoring.  
 
-    ```bash
-    $ mbed-tools compile -m <TARGET> -t <TOOLCHAIN> --flash
-    ```
+---
 
-    * Mbed CLI 1
+## Modes of Operation  
 
-    ```bash
-    $ mbed compile -m <TARGET> -t <TOOLCHAIN> --flash
-    ```
+1. **Open Loop Control**:  
+   - The fan runs at a user-set duty cycle.  
+   - Duty cycle is adjustable using the rotary encoder.  
 
-Your PC may take a few minutes to compile your code.
+2. **Closed Loop Control with Variable Fan Speed**:  
+   - The fan speed is controlled to match a user-defined target RPM.  
+   - Rotary encoder is used to set the target RPM.  
 
-The binary is located at:
-* **Mbed CLI 2** - `./cmake_build/<TARGET>/develop/<TOOLCHAIN>/mbed-os-example-blinky.bin`
-* **Mbed CLI 1** - `./BUILD/<TARGET>/<TOOLCHAIN>/mbed-os-example-blinky.bin`
+3. **Closed Loop Control with Temperature Measurements**:  
+   - The fan speed adjusts automatically based on the measured temperature.  
+   - No rotary encoder input is needed in this mode.  
 
-Alternatively, you can manually copy the binary to the board, which you mount on the host computer over USB.
+---
 
-## Expected output
-The LED on your target turns on and off every 500 milliseconds.
+## Interfaces  
 
+### User Inputs  
+- **Rotary Encoder**:  
+  - Adjusts duty cycle in Open Loop Mode.  
+  - Sets target RPM in Closed Loop Fan Speed Mode.  
+  - Unused in Closed Loop Temperature Mode.  
 
-## Troubleshooting
-If you have problems, you can review the [documentation](https://os.mbed.com/docs/latest/tutorials/debugging.html) for suggestions on what could be wrong and how to fix it.
+- **Button**:  
+  - Toggles between the three modes.  
 
-## Related Links
+### Visual Outputs  
+- **2-Digit 7-Segment Display**:  
+  - Displays:  
+    - Current duty cycle (%) in Open Loop Mode.  
+    - Percentage error between target RPM and current RPM in Closed Loop Fan Speed Mode.  
+    - Current temperature from the TC74 sensor in Closed Loop Temperature Mode.  
 
-* [Mbed OS Stats API](https://os.mbed.com/docs/latest/apis/mbed-statistics.html).
-* [Mbed OS Configuration](https://os.mbed.com/docs/latest/reference/configuration.html).
-* [Mbed OS Serial Communication](https://os.mbed.com/docs/latest/tutorials/serial-communication.html).
-* [Mbed OS bare metal](https://os.mbed.com/docs/mbed-os/latest/reference/mbed-os-bare-metal.html).
-* [Mbed boards](https://os.mbed.com/platforms/).
+- **LCD Screen**:  
+  - Displays:  
+    - **Second Line**: Current fan speed in all modes.  
+    - **First Line**:  
+      - Time delta for speed readings in Open Loop Mode.  
+      - Target RPM in Closed Loop Fan Speed Mode.  
+      - Target temperature in Closed Loop Temperature Mode.  
 
-### License and contributions
+- **LEDs**: Indicate various states and operational statuses.  
 
-The software is provided under Apache-2.0 license. Contributions to this project are accepted under the same license. Please see [CONTRIBUTING.md](./CONTRIBUTING.md) for more info.
+---
 
-This project contains code from other projects. The original license text is included in those source files. They must comply with our license guide.
+## Display Functionality  
+
+| **Mode**                     | **7-Segment Display**                    | **LCD Screen (Line 1)**       | **LCD Screen (Line 2)**     |  
+|------------------------------|------------------------------------------|--------------------------------|-----------------------------|  
+| Open Loop Control            | Duty cycle (%)                          | Time delta                    | Current fan speed           |  
+| Closed Loop Fan Speed Control| Percentage error (target vs. current)   | Target RPM                    | Current fan speed           |  
+| Closed Loop Temperature Control | Temperature (°C)                      | Target temperature            | Current fan speed           |  
+
+---
+
+## Setup  
+
+**Fill in this section with setup instructions, including hardware connections, software installation, and required libraries.**  
+
+---
+
+## Usage  
+
+1. **Power the board** and ensure all components are connected.  
+2. Use the **button** to switch between modes.  
+3. Adjust fan parameters as described:  
+   - Use the rotary encoder for duty cycle or target RPM adjustments (depending on the mode).  
+4. Monitor the **7-segment display** and **LCD screen** for real-time feedback.  
+
+---
+
+## License  
+
+This project is licensed under the [MIT License](LICENSE).  
+
+--- 
