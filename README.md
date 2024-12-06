@@ -1,4 +1,8 @@
-# Fan Controller Board
+<p align="center"><img src="https://cdn-icons-png.flaticon.com/512/6475/6475231.png" alt="FAN Logo" width="100"></p>
+<h1 align="center"> Fan Controller Board </h1>
+
+![Build Status](https://img.shields.io/badge/build-passing-brightgreen)
+![License](https://img.shields.io/badge/license-MIT-blue)
 
 This project features a fan controller board designed using the NUCLEO-F070RB development board. The board offers three modes of operation, allowing users to control and monitor the fan's behavior through various user interfaces.
 
@@ -185,7 +189,7 @@ The fan controller board provides robust control over fan operation, supporting 
 If you have any questions, suggestions, or feedback, feel free to reach out to us:
 
 - Email: [cjg75@bath.ac.uk](mailto:cjg75@bath.ac.uk)
-- GitHub Issues: [GitHub Issues Page]([https://github.com/your-repository/issues](https://github.com/Ac3CJ/Nucleo-Fan-Controller/issues))
+- GitHub Issues: [GitHub Issues Page](https://github.com/Ac3CJ/Nucleo-Fan-Controller/issues)
 
 ---
 
@@ -208,9 +212,9 @@ A: Check the wiring connections and ensure the power supply is correct. The syst
 A: Use the rotary encoder to set the target RPM in Closed Loop Fan Speed Mode.
 
 ### Q: I cannot see anything on the LCD Screen.
-A: Change the resistance on the 460Ohm potentiometer and check for connections.
+A: Change the resistance on the 460Ohm potentiometer and check the connections.
 
-### Q: The fan plugged in but is not spinning.
+### Q: The fan is plugged in but is not spinning.
 A: Ensure that the power supply is turned on and that there is a valid connection into the banana sockets on the extension board.
 
 ---
