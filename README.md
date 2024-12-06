@@ -121,6 +121,60 @@ The fan controller board provides robust control over fan operation, supporting 
    - Use the rotary encoder for duty cycle or target RPM adjustments (depending on the mode).  
 4. Monitor the **7-segment display** and **LCD screen** for real-time feedback.  
 
+### LCD Pin Connections
+
+| **Pin Value** | **Device Pin** | **Board Pin**       |
+|---------------|----------------|---------------------|
+| VSS           | 1              | GND                 |
+| VDD           | 2              | U5V                 |
+| VO            | 3              | 460 Ohm + GND       |
+| RS            | 4              | PA5                 |
+| R/W           | 5              | AGND                |
+| E             | 6              | PA6                 |
+| DB0           | 7              | PA7                 |
+| DB1           | 8              | PB6                 |
+| DB2           | 9              | PC7                 |
+| DB3           | 10             | PA9                 |
+| DB4           | 11             | PA8                 |
+| DB5           | 12             | PB10                |
+| DB6           | 13             | PB4                 |
+| DB7           | 14             | PB5                 |
+| A/VEE         | 15             | N/C                 |
+| K             | 16             | N/C                 |
+
+### 7-Segment Display Pin Connections
+
+| **Pin Value** | **D. Pin** | **B. Pin** |
+|---------------|------------|------------|
+| a             | 16         | PB1        |
+| b             | 15         | PB2        |
+| c             | 3          | PB11       |
+| d             | 2          | PB12       |
+| e             | 1          | PA11       |
+| f             | 18         | PA12       |
+| g             | 17         | PC5        |
+| Digit No. 1   | 14         | PC8        |
+| a             | 11         | PB1        |
+| b             | 10         | PB2        |
+| c             | 8          | PB11       |
+| d             | 6          | PB12       |
+| e             | 5          | PA11       |
+| f             | 12         | PA12       |
+| g             | 7          | PC5        |
+| Digit No. 2   | 13         | PC6        |
+
+### Temperature Sensor Pin Connections
+
+> **Note**: A pull-up resistor is required on both the **SDA** and **SCLK** lines.
+
+| **Pin Value** | **D. Pin** | **B. Pin** |
+|---------------|------------|------------|
+| NC            | 1          | NC         |
+| SDA           | 2          | PB9        |
+| GND           | 3          | GND        |
+| SCLK          | 4          | PB8        |
+| VDD           | 5          | U5V        |
+
 ---
 
 ## License  
